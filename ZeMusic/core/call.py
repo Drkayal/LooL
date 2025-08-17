@@ -6,6 +6,19 @@ from typing import Union
 
 from pyrogram import Client
 from pyrogram.types import InlineKeyboardMarkup
+# ntgcalls compatibility shim for enum names across versions
+try:
+	import ntgcalls as _ng
+	_ss = getattr(_ng, "StreamStatus", None)
+	if _ss is not None:
+		if hasattr(_ss, "PLAYING") and not hasattr(_ss, "Playing"):
+			setattr(_ss, "Playing", _ss.PLAYING)
+		if hasattr(_ss, "PAUSED") and not hasattr(_ss, "Paused"):
+			setattr(_ss, "Paused", _ss.PAUSED)
+		if hasattr(_ss, "STOPPED") and not hasattr(_ss, "Stopped"):
+			setattr(_ss, "Stopped", _ss.STOPPED)
+except Exception:
+	pass
 # Voice calls core and types imports targeting py-tgcalls==1.0.9
 from pytgcalls import PyTgCalls, StreamType
 from pytgcalls.types import Update

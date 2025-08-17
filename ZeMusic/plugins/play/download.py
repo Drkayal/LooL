@@ -8,7 +8,14 @@ import yt_dlp
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from youtube_search import YoutubeSearch
-from ZeMusic.platforms.Youtube import cookies, get_cookie_candidates, report_cookie_success, report_cookie_failure
+from ZeMusic.platforms.Youtube import (
+    cookies,
+    get_cookie_candidates,
+    report_cookie_success,
+    report_cookie_failure,
+    _http_headers,
+    _extractor_args_py,
+)
 from ZeMusic import app
 from ZeMusic.plugins.play.filters import command
 from ZeMusic.utils.decorators import AdminActual
@@ -139,7 +146,12 @@ async def song_downloader(client, message: Message):
             "quiet": True,
             "cookiefile": cookie_path,
             "noplaylist": True,
-            "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
+            "http_headers": _http_headers(),
+            "extractor_args": _extractor_args_py(),
+            "retries": 3,
+            "retry_sleep": {"extractor": [1, 5]},
+            "geo_bypass": True,
+            "nocheckcertificate": True,
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:

@@ -29,7 +29,17 @@ def _cookie_files() -> List[str]:
         files = [p for p in entries if os.path.isfile(p)]
     except FileNotFoundError:
         files = []
-    return files
+    # Prefer Netscape-format cookie files; fall back to any files if none detected
+    valid = []
+    for p in files:
+        try:
+            with open(p, "r", encoding="utf-8", errors="ignore") as fh:
+                head = fh.read(2048)
+                if "Netscape HTTP Cookie File" in head:
+                    valid.append(p)
+        except Exception:
+            continue
+    return valid or files
 
 
 def _cookie_basename(path: str) -> str:

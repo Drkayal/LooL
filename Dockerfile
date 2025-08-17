@@ -1,12 +1,20 @@
-FROM nikolaik/python-nodejs:python3.10-nodejs19
+FROM python:3.10-slim
+
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends ffmpeg git curl \
+ && rm -rf /var/lib/apt/lists/*
 
-COPY . /app/
-WORKDIR /app/
-RUN pip3 install --no-cache-dir -U -r requirements.txt
+WORKDIR /app
+COPY requirements.txt .
 
-CMD bash start
+# Install voice-calls stack first to avoid dependency conflicts
+RUN pip install --upgrade pip \
+ && pip install --pre tgcalls==3.0.0.dev6 \
+ && pip install --no-deps pytgcalls==2.1.0 \
+ && pip install -r requirements.txt
+
+COPY . .
+
+CMD ["bash", "start"]

@@ -2,7 +2,12 @@ import asyncio
 import importlib
 
 from pyrogram import idle
-from pytgcalls.exceptions import NoActiveGroupCall
+# Robust import for pytgcalls exceptions across versions
+try:
+    from pytgcalls.exceptions import NoActiveGroupCall
+except Exception:  # Fallback when symbol is unavailable
+    class NoActiveGroupCall(Exception):
+        pass
 
 import config
 from ZeMusic import LOGGER, app, userbot
@@ -43,7 +48,7 @@ async def init():
         await Mody.stream_call("https://te.legra.ph/file/29f784eb49d230ab62e9e.mp4")
     except NoActiveGroupCall:
         LOGGER("ZeMusic").error(
-            "Please turn on the videochat of your log group\channel.\n\nStopping Bot..."
+            "Please turn on the videochat of your log group\\channel.\n\nStopping Bot..."
         )
         exit()
     except:

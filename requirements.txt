@@ -9,7 +9,7 @@ heroku3
 motor
 pillow
 psutil
-pytgcalls==2.1.0
+# pytgcalls installed manually in Docker
 pykeyboard
 pyrogram==2.0.106
 python-dotenv

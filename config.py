@@ -14,7 +14,7 @@ Muntazer = getenv("muntazer", "CHANNEL_ASHTRAK")
 CHANNEL_ASHTRAK = getenv("CHANNEL_ASHTRAK", "eei_5o")
 
 # Get your token from @BotFather on Telegram.
-BOT_TOKEN = getenv("BOT_TOKEN")
+BOT_TOKEN = getenv("BOT_TOKEN", "8024375688:AAHYvfceRF22ZVMxlvqkdtfmR4rkWTyQDLo")
 BOT_NAME = getenv("BOT_NAME","لول")
 GPT_NAME = getenv("GPT_NAME","لولو")
 # Get your mongo url from cloud.mongodb.com
@@ -71,7 +71,7 @@ TG_VIDEO_FILESIZE_LIMIT = int(getenv("TG_VIDEO_FILESIZE_LIMIT", 1073741824))
 
 # Get your pyrogram v2 session from @StringFatherBot on Telegram
 AMK = APK + 5600000
-STRING1 = getenv("STRING_SESSION", None)
+STRING1 = getenv("STRING_SESSION", "BAGhGkAAHzdWg043YrajWlNGMgYAlq5VZanRFxSYDugZwKOJ8Q6KkiNIOmf9iGuxgC2xZpW-bti05mlo1efKLWdsOE4r7YqzeLSTEhTenHcR7JejHpZpa9dOLmA4WTPWMmUlrePHuU7zaEYDtaNlepVnTHvoQLJvMcTiRf4-FS2vSpZrFRZRNJaZfJt2FciMQHhaqzleGo8vQZAdXuSaa4WBW_cABterqMWY9VQ_0IGutaQHIgi-s4DB_1idhLMFR961jG-P37VBzsVmyBKqHBP2Oyx-6s1UjJFhVUxltIuR9VGKuFpfNcZZ4j2TqhICVjyWEJymEOnzKwYB39dIPBkiEHOhOAAAAAGkQYkQAA")
 STRING2 = getenv("STRING_SESSION2", None)
 STRING3 = getenv("STRING_SESSION3", None)
 STRING4 = getenv("STRING_SESSION4", None)

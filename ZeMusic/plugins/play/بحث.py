@@ -131,6 +131,7 @@ async def song_downloader1(client, message: Message):
             "outtmpl": f"{title_clean}.%(ext)s",  # استخدام اسم نظيف للملف
             "quiet": True,
             "cookiefile": cookie_path,
+            "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:

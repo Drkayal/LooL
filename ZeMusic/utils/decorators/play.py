@@ -153,7 +153,10 @@ def PlayWrapper(command):
                             _["call_3"].format(app.mention, type(e).__name__)
                         )
                     await asyncio.sleep(3)
-                    await myu.edit(_["call_5"].format(app.mention))
+                    try:
+                        await message.reply_text(_["call_5"].format(app.mention))
+                    except:
+                        pass
                 except UserAlreadyParticipant:
                     pass
                 except Exception as e:

@@ -15,8 +15,8 @@ CHANNEL_ASHTRAK = getenv("CHANNEL_ASHTRAK", "eei_5o")
 
 # Get your token from @BotFather on Telegram.
 BOT_TOKEN = getenv("BOT_TOKEN")
-BOT_NAME = getenv("BOT_NAME","لارين")
-GPT_NAME = getenv("GPT_NAME","")
+BOT_NAME = getenv("BOT_NAME","لول")
+GPT_NAME = getenv("GPT_NAME","لولو")
 # Get your mongo url from cloud.mongodb.com
 MONGO_DB_URI = getenv("MONGO_DB_URI", "mongodb+srv://fasd2025:faresbakil2025@cluster0.wdjssoo.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
@@ -26,7 +26,7 @@ DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", 480))
 LOGGER_ID = int(getenv("LOGGER_ID","-1002034990746"))
 
 # Get this value from @FallenxBot on Telegram by /id
-OWNER_ID = int(getenv("OWNER_ID", 7540129630))
+OWNER_ID = int(getenv("OWNER_ID", 985612253))
 
 ## Fill these variables if you re deploying on heroku.
 # Your heroku app name
@@ -36,7 +36,7 @@ HEROKU_API_KEY = getenv("HEROKU_API_KEY")
 
 UPSTREAM_REPO = getenv(
     "UPSTREAM_REPO",
-    "https://github.com/LLLA1/Larin",
+    "https://github.com/Drkayal/LooL",
 )
 UPSTREAM_BRANCH = getenv("UPSTREAM_BRANCH", "master")
 APK = 5140000000

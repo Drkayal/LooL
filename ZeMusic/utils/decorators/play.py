@@ -123,10 +123,6 @@ def PlayWrapper(command):
                 else:
                     if message.chat.username:
                         invitelink = message.chat.username
-                        try:
-                            await userbot.resolve_peer(invitelink)
-                        except:
-                            pass
                     else:
                         try:
                             invitelink = await app.export_chat_invite_link(chat_id)
@@ -165,11 +161,6 @@ def PlayWrapper(command):
                     )
 
                 links[chat_id] = invitelink
-
-                try:
-                    await userbot.resolve_peer(chat_id)
-                except:
-                    pass
 
         return await command(
             client,

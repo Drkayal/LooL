@@ -75,7 +75,6 @@ async def settings_back_markup(client, CallbackQuery: CallbackQuery, _):
     except:
         pass
     if CallbackQuery.message.chat.type == ChatType.PRIVATE:
-        await app.resolve_peer(OWNER_ID)
         OWNER = OWNER_ID
         buttons = private_panel(_)
         return await CallbackQuery.edit_message_text(
@@ -139,43 +138,17 @@ async def without_Admin_rights(client, CallbackQuery, _):
         try:
             await CallbackQuery.answer(_["set_cb_2"], show_alert=True)
         except:
-            pass
-        playmode = await get_playmode(CallbackQuery.message.chat.id)
-        if playmode == "Direct":
-            Direct = True
-        else:
-            Direct = None
-        is_non_admin = await is_nonadmin_chat(CallbackQuery.message.chat.id)
-        if not is_non_admin:
-            Group = True
-        else:
-            Group = None
-        playty = await get_playtype(CallbackQuery.message.chat.id)
-        if playty == "Everyone":
-            Playtype = None
-        else:
-            Playtype = True
-        buttons = playmode_users_markup(_, Direct, Group, Playtype)
+            return
     if command == "AU":
         try:
-            await CallbackQuery.answer(_["set_cb_1"], show_alert=True)
+            await CallbackQuery.answer(_["set_cb_3"], show_alert=True)
         except:
-            pass
-        is_non_admin = await is_nonadmin_chat(CallbackQuery.message.chat.id)
-        if not is_non_admin:
-            buttons = auth_users_markup(_, True)
-        else:
-            buttons = auth_users_markup(_)
+            return
     if command == "VM":
-        mode = await is_skipmode(CallbackQuery.message.chat.id)
-        current = await get_upvote_count(CallbackQuery.message.chat.id)
-        buttons = vote_mode_markup(_, current, mode)
-    try:
-        return await CallbackQuery.edit_message_reply_markup(
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    except MessageNotModified:
-        return
+        try:
+            await CallbackQuery.answer(_["set_cb_4"], show_alert=True)
+        except:
+            return
 
 
 @app.on_callback_query(filters.regex("FERRARIUDTI") & ~BANNED_USERS)

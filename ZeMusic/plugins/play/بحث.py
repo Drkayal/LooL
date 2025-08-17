@@ -24,6 +24,7 @@ from ZeMusic.core.cache import (
     bump_usage,
 )
 
+
 def remove_if_exists(path):
     if os.path.exists(path):
         os.remove(path)
@@ -83,6 +84,9 @@ async def song_downloader1(client, message: Message):
             return
 
         link = f"https://youtube.com{results[0]['url_suffix']}"
+        # Drop playlist params like list=RD..., index=..., etc. to avoid youtube:tab auth checks
+        if "&" in link:
+            link = link.split("&")[0]
         title = results[0]["title"][:40]
         title_clean = re.sub(r'[\\/*?:"<>|]', "", title)  # تنظيف اسم الملف
         thumbnail = results[0]["thumbnails"][0]
@@ -131,6 +135,7 @@ async def song_downloader1(client, message: Message):
             "outtmpl": f"{title_clean}.%(ext)s",  # استخدام اسم نظيف للملف
             "quiet": True,
             "cookiefile": cookie_path,
+            "noplaylist": True,
             "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
         }
         try:

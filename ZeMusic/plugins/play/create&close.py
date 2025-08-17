@@ -11,12 +11,19 @@ from ZeMusic.utils.database import *
 from pyrogram.raw.functions.phone import CreateGroupCall, DiscardGroupCall
 from pyrogram.errors import UserAlreadyParticipant, UserNotParticipant, ChatAdminRequired
 from ZeMusic import app , Userbot
+from pyrogram.utils import get_channel_id
+from pyrogram.enums import ChatType as PyroChatType
 
 async def get_group_call(
     client: Client, message: Message, err_msg: str = ""
 ) -> Optional[InputGroupCall]:
     assistant = await get_assistant(message.chat.id)
-    chat_peer = await assistant.resolve_peer(message.chat.id)
+    try:
+        chat_peer = await assistant.resolve_peer(
+            message.chat.username or get_channel_id(message.chat.id)
+        )
+    except Exception:
+        chat_peer = None
     if isinstance(chat_peer, (InputPeerChannel, InputPeerChat)):
         if isinstance(chat_peer, InputPeerChannel):
             full_chat = (
@@ -28,7 +35,7 @@ async def get_group_call(
             ).full_chat
         if full_chat is not None:
             return full_chat.call
-    await app.send_message(f"**No group call Found** {err_msg}")
+    await app.send_message(message.chat.id, f"**No group call Found** {err_msg}")
     return False
 
 @app.on_message(filters.regex(r"^(افتح المكالمه|افتح المكالمة|فتح المكالمه|فتح المكالمة)$"))
@@ -38,16 +45,21 @@ async def start_group_call(c: Client, m: Message):
     if assistant is None:
         await app.send_message(chat_id, "خطأ في المساعد")
         return
+    # Ensure assistant id for promotions when needed
+    ass_me = await assistant.get_me()
+    assid = ass_me.id
     msg = await m.reply("جاري تشغيل المكالمه..")
     try:
-        peer = await assistant.resolve_peer(chat_id)
+        peer = await assistant.resolve_peer(
+            m.chat.username or (get_channel_id(chat_id) if m.chat.type in (PyroChatType.SUPERGROUP, PyroChatType.CHANNEL) else chat_id)
+        )
         await assistant.invoke(
             CreateGroupCall(
                 peer=InputPeerChannel(
                     channel_id=peer.channel_id,
                     access_hash=peer.access_hash,
                 ),
-                random_id=assistant.rnd_id() // 9000000000,
+                random_id=randint(100000, 999999999),
             )
         )
         await msg.edit_text("تم فتح المكالمه بنجاح 𝄞~!")
@@ -64,14 +76,16 @@ async def start_group_call(c: Client, m: Message):
                 can_promote_members=False,
             ))
 
-            peer = await assistant.resolve_peer(chat_id)
+            peer = await assistant.resolve_peer(
+                m.chat.username or (get_channel_id(chat_id) if m.chat.type in (PyroChatType.SUPERGROUP, PyroChatType.CHANNEL) else chat_id)
+            )
             await assistant.invoke(
                 CreateGroupCall(
                     peer=InputPeerChannel(
                         channel_id=peer.channel_id,
                         access_hash=peer.access_hash,
                     ),
-                    random_id=assistant.rnd_id() // 9000000000,
+                    random_id=randint(100000, 999999999),
                 )
             )
 

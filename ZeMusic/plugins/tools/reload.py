@@ -56,28 +56,8 @@ async def restartbot(client, message: Message, _):
         await Mody.stop_stream_force(message.chat.id)
     except:
         pass
-    userbot = await get_assistant(message.chat.id)
-    try:
-        if message.chat.username:
-            await userbot.resolve_peer(message.chat.username)
-        else:
-            await userbot.resolve_peer(message.chat.id)
-    except:
-        pass
     chat_id = await get_cmode(message.chat.id)
     if chat_id:
-        try:
-            got = await app.get_chat(chat_id)
-        except:
-            pass
-        userbot = await get_assistant(chat_id)
-        try:
-            if got.username:
-                await userbot.resolve_peer(got.username)
-            else:
-                await userbot.resolve_peer(chat_id)
-        except:
-            pass
         try:
             db[chat_id] = []
             await Mody.stop_stream_force(chat_id)

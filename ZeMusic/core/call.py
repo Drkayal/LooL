@@ -11,6 +11,9 @@ try:
 	import ntgcalls as _ng
 	_ss = getattr(_ng, "StreamStatus", None)
 	if _ss is not None:
+		# Newer ntgcalls uses ALL-CAPS names; py-tgcalls==1.0.9 expects PascalCase
+		if hasattr(_ss, "IDLING") and not hasattr(_ss, "Idling"):
+			setattr(_ss, "Idling", _ss.IDLING)
 		if hasattr(_ss, "PLAYING") and not hasattr(_ss, "Playing"):
 			setattr(_ss, "Playing", _ss.PLAYING)
 		if hasattr(_ss, "PAUSED") and not hasattr(_ss, "Paused"):

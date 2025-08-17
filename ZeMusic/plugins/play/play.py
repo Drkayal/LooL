@@ -3,7 +3,11 @@ import string
 
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, InputMediaPhoto, Message
-from pytgcalls.exceptions import NoActiveGroupCall
+try:
+    from pytgcalls.exceptions import NoActiveGroupCall
+except Exception:
+    class NoActiveGroupCall(Exception):
+        pass
 
 import config
 from ZeMusic import Apple, Resso, SoundCloud, Spotify, Telegram, YouTube, app

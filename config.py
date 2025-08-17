@@ -48,7 +48,7 @@ CHANNEL_NAME = getenv("CHANNEL_NAME", "السورس")
 CHANNEL_LINK = getenv("CHANNEL_LINK", "K55DD")
 STORE_NAME = getenv("STORE_NAME", "المتجر")
 STORE_LINK = getenv("STORE_LINK", "YMMYN")
-SUPPORT_CHAT = getenv("SUPPORT_CHAT", "K55DD")
+SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/YMMYN")
 
 # Set this to True if you want the assistant to automatically leave chats after an interval
 AUTO_LEAVING_ASSISTANT = bool(getenv("AUTO_LEAVING_ASSISTANT", True))
@@ -110,11 +110,9 @@ DURATION_LIMIT = int(time_to_seconds(f"{DURATION_LIMIT_MIN}:00"))
 
 
 
-if SUPPORT_CHAT:
-    if not re.match("(?:http|https)://", SUPPORT_CHAT):
-        raise SystemExit(
-            "[ERROR] - Your SUPPORT_CHAT url is wrong. Please ensure that it starts with https://"
-        )
+if SUPPORT_CHAT and not re.match("(?:http|https)://", SUPPORT_CHAT):
+    # Normalize bare usernames like '@channel' or 't.me/...' to full https URL
+    SUPPORT_CHAT = f"https://t.me/{SUPPORT_CHAT.split('/')[-1].lstrip('@')}"
 
 # Redis cache configuration
 REDIS_URL = getenv("REDIS_URL", "redis://localhost:6379/0")

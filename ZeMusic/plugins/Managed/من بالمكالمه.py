@@ -6,7 +6,21 @@ from pytgcalls import PyTgCalls, StreamType
 from pytgcalls.types.input_stream import AudioPiped, AudioVideoPiped
 from ZeMusic.core.call import Mody
 from ZeMusic.utils.database import *
-from pytgcalls.exceptions import (NoActiveGroupCall,TelegramServerError,AlreadyJoinedError)
+try:
+    from pytgcalls.exceptions import (
+        NoActiveGroupCall,
+        TelegramServerError,
+        AlreadyJoinedError,
+    )
+except Exception:
+    class NoActiveGroupCall(Exception):
+        pass
+
+    class TelegramServerError(Exception):
+        pass
+
+    class AlreadyJoinedError(Exception):
+        pass
 
 @app.on_message(filters.regex("^(مين في الكول|من في الكول|من بالمكالمه|من بالمكالمة|من في المكالمه|من في المكالمة|الصاعدين)$"))
 async def strcall(client, message):

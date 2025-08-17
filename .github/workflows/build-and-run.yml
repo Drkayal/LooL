@@ -1,0 +1,70 @@
+name: Build and Run Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-run:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      mongo:
+        image: mongo:6
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })' || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build --no-cache -t lool-bot .
+
+      - name: Run container
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          STRING_SESSION: ${{ secrets.STRING_SESSION }}
+          LOGGER_ID: ${{ secrets.LOGGER_ID }}
+          OWNER_ID: ${{ secrets.OWNER_ID }}
+          REDIS_URL: redis://localhost:6379/0
+          SUPPORT_CHAT: https://t.me/K55DD
+          # Optional override: if not set, config.py default is used
+          MONGO_DB_URI: ${{ secrets.MONGO_DB_URI }}
+        run: |
+          docker rm -f lool-run || true
+          docker run -d --name lool-run \
+            -e BOT_TOKEN="$BOT_TOKEN" \
+            -e STRING_SESSION="$STRING_SESSION" \
+            -e LOGGER_ID="$LOGGER_ID" \
+            -e OWNER_ID="$OWNER_ID" \
+            -e REDIS_URL="$REDIS_URL" \
+            -e SUPPORT_CHAT="$SUPPORT_CHAT" \
+            -e MONGO_DB_URI="$MONGO_DB_URI" \
+            --network host lool-bot
+
+      - name: Wait and show logs
+        run: |
+          sleep 25
+          docker logs --tail=300 lool-run || true
+
+      - name: Fail job if container exited
+        run: |
+          status=$(docker inspect -f '{{.State.Running}}' lool-run || echo false)
+          if [ "$status" != "true" ]; then
+            echo "Container is not running" >&2
+            exit 1
+          fi

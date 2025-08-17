@@ -47,10 +47,10 @@ async def init():
     try:
         await Mody.stream_call("https://te.legra.ph/file/29f784eb49d230ab62e9e.mp4")
     except NoActiveGroupCall:
-        LOGGER("ZeMusic").error(
-            "Please turn on the videochat of your log group\\channel.\n\nStopping Bot..."
+        LOGGER("ZeMusic").warning(
+            "Log group videochat not active. Continuing without initial stream test."
         )
-        exit()
+        # Do NOT exit here; keep the bot running
     except:
         pass
     await Mody.decorators()

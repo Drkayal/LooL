@@ -60,7 +60,6 @@ async def init():
     await idle()
     await app.stop()
     await userbot.stop()
-    await azkar()
     LOGGER("ZeMusic").info("Stopping Ze Music Bot...")
 
 

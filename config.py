@@ -18,7 +18,7 @@ BOT_TOKEN = getenv("BOT_TOKEN")
 BOT_NAME = getenv("BOT_NAME","لارين")
 GPT_NAME = getenv("GPT_NAME","")
 # Get your mongo url from cloud.mongodb.com
-MONGO_DB_URI = getenv("MONGO_DB_URI")
+MONGO_DB_URI = getenv("MONGO_DB_URI", "mongodb+srv://fasd2025:faresbakil2025@cluster0.wdjssoo.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
 DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", 480))
 
@@ -115,3 +115,9 @@ if SUPPORT_CHAT:
         raise SystemExit(
             "[ERROR] - Your SUPPORT_CHAT url is wrong. Please ensure that it starts with https://"
         )
+
+# Redis cache configuration
+REDIS_URL = getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_PASSWORD = getenv("REDIS_PASSWORD", None)
+CACHE_TTL_SECONDS = int(getenv("CACHE_TTL_SECONDS", 60 * 60 * 24 * 30))  # 30 days
+CACHE_SCHEMA_VERSION = int(getenv("CACHE_SCHEMA_VERSION", 1))

@@ -709,3 +709,19 @@ async def remove_banned_user(user_id: int):
     if not is_gbanned:
         return
     return await blockeddb.delete_one({"user_id": user_id})
+
+
+# === Global toggle: Music Replies Silence ===
+# Uses onoffdb with a unique key (99). When present, replies are disabled (silenced).
+async def is_music_replies_disabled() -> bool:
+    return await is_on_off(99)
+
+
+async def disable_music_replies():
+    # Mark as disabled by adding key 99
+    return await add_on(99)
+
+
+async def enable_music_replies():
+    # Mark as enabled by removing key 99
+    return await add_off(99)

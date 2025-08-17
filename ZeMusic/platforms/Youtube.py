@@ -3,7 +3,8 @@ import glob
 import os
 import random
 import re
-from typing import Union
+import time
+from typing import Union, List
 
 from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
@@ -14,15 +15,105 @@ import config
 from ZeMusic.utils.database import is_on_off
 from ZeMusic.utils.formatters import time_to_seconds, seconds_to_min
 from ZeMusic.utils.decorators import asyncify
+from ZeMusic.core.cache import get_redis
+
+
+def _cookies_folder() -> str:
+    return f"{os.getcwd()}/cookies"
+
+
+def _cookie_files() -> List[str]:
+    folder_path = _cookies_folder()
+    try:
+        entries = [os.path.join(folder_path, name) for name in os.listdir(folder_path)]
+        files = [p for p in entries if os.path.isfile(p)]
+    except FileNotFoundError:
+        files = []
+    return files
+
+
+def _cookie_basename(path: str) -> str:
+    return str(path).split("/")[-1]
+
+
+def _cookie_key(name: str) -> str:
+    return f"ytcookies:file:{name}"
+
+
+def _cookie_cooldown_key(name: str) -> str:
+    return f"ytcookies:cooldown:{name}"
+
+
+async def get_cookie_candidates() -> List[str]:
+    """Return cookie file paths ordered by health/usage (best first). Fallback to shuffled list if Redis unavailable."""
+    files = _cookie_files()
+    if not files:
+        raise FileNotFoundError("No cookie files found in the cookies folder.")
+    r = None
+    try:
+        r = get_redis()
+    except Exception:
+        r = None
+    if r is None:
+        random.shuffle(files)
+        return [f"cookies/{_cookie_basename(p)}" for p in files]
+
+    now = int(time.time())
+    scored = []
+    for path in files:
+        name = _cookie_basename(path)
+        try:
+            cooling = await r.ttl(_cookie_cooldown_key(name))
+            h = await r.hgetall(_cookie_key(name)) or {}
+            usage = int(h.get("usage", 0))
+            fail = int(h.get("fail", 0))
+            # Lower score is better. Penalize failures heavily; spread by usage; slight randomness to avoid ties
+            jitter = random.randint(0, 5)
+            score = (fail * 1000000) + (usage * 10) + (jitter)
+            if cooling and cooling > 0:
+                score += 10_000_000
+            scored.append((score, name))
+        except Exception:
+            scored.append((random.randint(0, 1000), name))
+    scored.sort(key=lambda x: x[0])
+    return [f"cookies/{name}" for _, name in scored]
+
+
+async def report_cookie_success(cookie_path: str) -> None:
+    """Increase usage counter and refresh ts for a cookie file."""
+    try:
+        r = get_redis()
+        name = _cookie_basename(cookie_path)
+        await r.hincrby(_cookie_key(name), "usage", 1)
+        await r.hset(_cookie_key(name), "ts", str(int(time.time())))
+    except Exception:
+        pass
+
+
+async def report_cookie_failure(cookie_path: str, cooldown_seconds: int = 1800) -> None:
+    """Increase failure counter and set a temporary cooldown to deprioritize the cookie."""
+    try:
+        r = get_redis()
+        name = _cookie_basename(cookie_path)
+        await r.hincrby(_cookie_key(name), "fail", 1)
+        await r.hset(_cookie_key(name), "ts", str(int(time.time())))
+        await r.set(_cookie_cooldown_key(name), "1", ex=cooldown_seconds)
+    except Exception:
+        pass
 
 
 def cookies():
-    folder_path = f"{os.getcwd()}/cookies"
-    txt_files = glob.glob(os.path.join(folder_path, "*.txt"))
-    if not txt_files:
-        raise FileNotFoundError("No .txt files found in the specified folder.")
-    cookie_txt_file = random.choice(txt_files)
-    return f"""cookies/{str(cookie_txt_file).split("/")[-1]}"""
+    files = _cookie_files()
+    if not files:
+        raise FileNotFoundError("No cookie files found in the specified folder.")
+    # Prefer best candidate if possible (non-blocking)
+    # Fallback to random choice on any error
+    try:
+        # This function is sync; we pick from current list randomly to keep backward compatibility
+        # Rotation and health are handled by get_cookie_candidates for advanced callers
+        return f"cookies/{_cookie_basename(random.choice(files))}"
+    except Exception:
+        return f"cookies/{_cookie_basename(random.choice(files))}"
 
 
 async def shell_cmd(cmd):
@@ -46,7 +137,7 @@ class YouTubeAPI:
         self.regex = r"(?:youtube\.com|youtu\.be)"
         self.status = "https://www.youtube.com/oembed?url="
         self.listbase = "https://youtube.com/playlist?list="
-        self.reg = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        self.reg = re.compile(r"\x1B(?:[@-Z\-_]|\[[0-?]*[ -/]*[@-~])")
 
     async def exists(self, link: str, videoid: Union[bool, str] = None):
         if videoid:

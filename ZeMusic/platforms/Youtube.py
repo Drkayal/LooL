@@ -4,6 +4,8 @@ import os
 import random
 import re
 import time
+import sys
+import shutil
 from typing import Union, List
 
 from pyrogram.enums import MessageEntityType
@@ -126,6 +128,36 @@ def cookies():
         return f"cookies/{_cookie_basename(random.choice(files))}"
 
 
+# Common headers and extractor args to mitigate HTTP 429 and reduce auth checks
+ANDROID_UA = (
+    "Mozilla/5.0 (Linux; Android 12; SM-G991B) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+)
+
+
+def _http_headers() -> dict:
+    return {"User-Agent": ANDROID_UA, "Accept-Language": "en-US,en;q=0.5"}
+
+
+def _extractor_args_py() -> dict:
+    return {
+        "youtubetab": {"skip": ["authcheck"]},
+        "youtube": {"player_client": ["android"]},
+    }
+
+
+def _extractor_args_cli() -> str:
+    return "youtube:player_client=android;youtubetab:skip=authcheck"
+
+
+def _yt_dlp_base_cmd() -> List[str]:
+    exe = shutil.which("yt-dlp")
+    if exe:
+        return [exe]
+    python_exe = sys.executable or "python3"
+    return [python_exe, "-m", "yt_dlp"]
+
+
 async def shell_cmd(cmd):
     proc = await asyncio.create_subprocess_shell(
         cmd,
@@ -234,25 +266,48 @@ class YouTubeAPI:
             link = self.base + link
         if "&" in link:
             link = link.split("&")[0]
-        cmd = [
-            "yt-dlp",
-            "-g",
-            "-f",
-            "best[height<=?720][width<=?1280]",
-            "--cookies", cookies(),
-            "--extractor-args", "youtubetab:skip=authcheck",
-            f"{link}",
-        ]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if stdout:
-            return 1, stdout.decode().split("\n")[0]
-        else:
-            return 0, stderr.decode()
+        try:
+            candidates = await get_cookie_candidates()
+        except Exception:
+            candidates = [cookies()]
+        last_err = None
+        for cookie_path in candidates:
+            cmd = [
+                *_yt_dlp_base_cmd(),
+                "-g",
+                "-f",
+                "best[height<=?720][width<=?1280]",
+                "--cookies", cookie_path,
+                "--extractor-args", _extractor_args_cli(),
+                "--user-agent", ANDROID_UA,
+                "--force-ipv4",
+                "--geo-bypass",
+                "--geo-bypass-country", "US",
+                "--no-check-certificates",
+                "--retries", "3",
+                "--retry-sleep", "1:5",
+                f"{link}",
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if stdout:
+                try:
+                    await report_cookie_success(cookie_path)
+                except Exception:
+                    pass
+                return 1, stdout.decode().split("\n")[0]
+            else:
+                last_err = stderr.decode()
+                try:
+                    await report_cookie_failure(cookie_path)
+                except Exception:
+                    pass
+                continue
+        return 0, (last_err or "yt-dlp failed with all cookies")
 
     async def playlist(self, link, limit, videoid: Union[bool, str] = None):
         if videoid:
@@ -260,21 +315,59 @@ class YouTubeAPI:
         if "&" in link:
             link = link.split("&")[0]
 
-        cmd = (
-            f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
-            f'--get-id --flat-playlist --playlist-end {limit} --skip-download "{link}" '
-            f'--extractor-args "youtubetab:skip=authcheck" '
-            f"--cookies {cookies()} "
-            f"2>/dev/null"
-        )
-
-        playlist = await shell_cmd(cmd)
-
         try:
-            result = [key for key in playlist.split("\n") if key]
-        except:
-            result = []
-        return result
+            candidates = await get_cookie_candidates()
+        except Exception:
+            candidates = [cookies()]
+
+        last_output = ""
+        for cookie_path in candidates:
+            cmd = [
+                *_yt_dlp_base_cmd(),
+                "-i",
+                "--compat-options", "no-youtube-unavailable-videos",
+                "--get-id",
+                "--flat-playlist",
+                "--playlist-end", str(limit),
+                "--skip-download",
+                "--extractor-args", _extractor_args_cli(),
+                "--cookies", cookie_path,
+                "--user-agent", ANDROID_UA,
+                "--force-ipv4",
+                "--geo-bypass",
+                "--geo-bypass-country", "US",
+                "--no-check-certificates",
+                "--retries", "3",
+                "--retry-sleep", "1:5",
+                f"{link}",
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            out = stdout.decode()
+            if out.strip():
+                try:
+                    await report_cookie_success(cookie_path)
+                except Exception:
+                    pass
+                try:
+                    return [key for key in out.split("\n") if key]
+                except Exception:
+                    return []
+            else:
+                last_output = stderr.decode()
+                try:
+                    await report_cookie_failure(cookie_path)
+                except Exception:
+                    pass
+                continue
+        try:
+            return [key for key in last_output.split("\n") if key]
+        except Exception:
+            return []
 
     async def track(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
@@ -310,7 +403,8 @@ class YouTubeAPI:
             "quiet": True,
             "extract_flat": "in_playlist",
             "cookiefile": f"{cookies()}",
-            "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
+            "http_headers": _http_headers(),
+            "extractor_args": _extractor_args_py(),
         }
         with YoutubeDL(options) as ydl:
             info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
@@ -338,7 +432,8 @@ class YouTubeAPI:
         ytdl_opts = {
             "quiet": True,
             "cookiefile": f"{cookies()}",
-            "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
+            "http_headers": _http_headers(),
+            "extractor_args": _extractor_args_py(),
         }
 
         ydl = YoutubeDL(ytdl_opts)
@@ -413,7 +508,8 @@ class YouTubeAPI:
                 "quiet": True,
                 "no_warnings": True,
                 "cookiefile": f"{cookies()}",
-                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
+                "http_headers": _http_headers(),
+                "extractor_args": _extractor_args_py(),
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -433,7 +529,8 @@ class YouTubeAPI:
                 "quiet": True,
                 "no_warnings": True,
                 "cookiefile": f"{cookies()}",
-                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
+                "http_headers": _http_headers(),
+                "extractor_args": _extractor_args_py(),
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -457,7 +554,8 @@ class YouTubeAPI:
                 "prefer_ffmpeg": True,
                 "merge_output_format": "mp4",
                 "cookiefile": f"{cookies()}",
-                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
+                "http_headers": _http_headers(),
+                "extractor_args": _extractor_args_py(),
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -481,7 +579,8 @@ class YouTubeAPI:
                     }
                 ],
                 "cookiefile": f"{cookies()}",
-                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
+                "http_headers": _http_headers(),
+                "extractor_args": _extractor_args_py(),
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -500,27 +599,51 @@ class YouTubeAPI:
                 direct = True
                 downloaded_file = await loop.run_in_executor(None, video_dl)
             else:
-                command = [
-                    "yt-dlp",
-                    "-g",
-                    "-f",
-                    "best[height<=?720][width<=?1280]",
-                    "--cookies", cookies(),
-                    "--extractor-args", "youtubetab:skip=authcheck",
-                    link,
-                ]
-
-                proc = await asyncio.create_subprocess_exec(
-                    *command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await proc.communicate()
-
-                if stdout:
-                    downloaded_file = stdout.decode().split("\n")[0]
-                    direct = None
-                else:
+                try:
+                    candidates = await get_cookie_candidates()
+                except Exception:
+                    candidates = [cookies()]
+                downloaded_file = None
+                last_err = None
+                for cookie_path in candidates:
+                    command = [
+                        *_yt_dlp_base_cmd(),
+                        "-g",
+                        "-f",
+                        "best[height<=?720][width<=?1280]",
+                        "--cookies", cookie_path,
+                        "--extractor-args", _extractor_args_cli(),
+                        "--user-agent", ANDROID_UA,
+                        "--force-ipv4",
+                        "--geo-bypass",
+                        "--geo-bypass-country", "US",
+                        "--no-check-certificates",
+                        "--retries", "3",
+                        "--retry-sleep", "1:5",
+                        link,
+                    ]
+                    proc = await asyncio.create_subprocess_exec(
+                        *command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    stdout, stderr = await proc.communicate()
+                    if stdout:
+                        try:
+                            await report_cookie_success(cookie_path)
+                        except Exception:
+                            pass
+                        downloaded_file = stdout.decode().split("\n")[0]
+                        direct = None
+                        break
+                    else:
+                        last_err = stderr.decode()
+                        try:
+                            await report_cookie_failure(cookie_path)
+                        except Exception:
+                            pass
+                        continue
+                if not downloaded_file:
                     return
         else:
             direct = True

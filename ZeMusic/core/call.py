@@ -6,7 +6,19 @@ from typing import Union
 
 from pyrogram import Client
 from pyrogram.types import InlineKeyboardMarkup
-from pytgcalls import PyTgCalls, StreamType
+# Voice calls core and types imports across versions
+try:
+    from pytgcalls import PyTgCalls, StreamType
+    from pytgcalls.types import Update
+    from pytgcalls.types.input_stream import AudioPiped, AudioVideoPiped
+    from pytgcalls.types.input_stream.quality import HighQualityAudio, MediumQualityVideo
+    from pytgcalls.types.stream import StreamAudioEnded
+except Exception:
+    from tgcalls import PyTgCalls, StreamType
+    from tgcalls.types import Update
+    from tgcalls.types.input_stream import AudioPiped, AudioVideoPiped
+    from tgcalls.types.input_stream.quality import HighQualityAudio, MediumQualityVideo
+    from tgcalls.types.stream import StreamAudioEnded
 # Robust import of exceptions across pytgcalls versions
 try:
     from pytgcalls.exceptions import (
@@ -21,11 +33,6 @@ except Exception:
         pass
     class TelegramServerError(Exception):
         pass
-
-from pytgcalls.types import Update
-from pytgcalls.types.input_stream import AudioPiped, AudioVideoPiped
-from pytgcalls.types.input_stream.quality import HighQualityAudio, MediumQualityVideo
-from pytgcalls.types.stream import StreamAudioEnded
 
 import config
 from ZeMusic import LOGGER, YouTube, app

@@ -29,7 +29,17 @@ def _cookie_files() -> List[str]:
         files = [p for p in entries if os.path.isfile(p)]
     except FileNotFoundError:
         files = []
-    return files
+    # Prefer Netscape-format cookie files; fall back to any files if none detected
+    valid = []
+    for p in files:
+        try:
+            with open(p, "r", encoding="utf-8", errors="ignore") as fh:
+                head = fh.read(2048)
+                if "Netscape HTTP Cookie File" in head:
+                    valid.append(p)
+        except Exception:
+            continue
+    return valid or files
 
 
 def _cookie_basename(path: str) -> str:
@@ -229,7 +239,8 @@ class YouTubeAPI:
             "-g",
             "-f",
             "best[height<=?720][width<=?1280]",
-            f"--cookies {cookies()}",
+            "--cookies", cookies(),
+            "--extractor-args", "youtubetab:skip=authcheck",
             f"{link}",
         ]
         proc = await asyncio.create_subprocess_exec(
@@ -252,6 +263,8 @@ class YouTubeAPI:
         cmd = (
             f"yt-dlp -i --compat-options no-youtube-unavailable-videos "
             f'--get-id --flat-playlist --playlist-end {limit} --skip-download "{link}" '
+            f'--extractor-args "youtubetab:skip=authcheck" '
+            f"--cookies {cookies()} "
             f"2>/dev/null"
         )
 
@@ -297,6 +310,7 @@ class YouTubeAPI:
             "quiet": True,
             "extract_flat": "in_playlist",
             "cookiefile": f"{cookies()}",
+            "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
         }
         with YoutubeDL(options) as ydl:
             info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
@@ -324,6 +338,7 @@ class YouTubeAPI:
         ytdl_opts = {
             "quiet": True,
             "cookiefile": f"{cookies()}",
+            "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
         }
 
         ydl = YoutubeDL(ytdl_opts)
@@ -398,6 +413,7 @@ class YouTubeAPI:
                 "quiet": True,
                 "no_warnings": True,
                 "cookiefile": f"{cookies()}",
+                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -417,6 +433,7 @@ class YouTubeAPI:
                 "quiet": True,
                 "no_warnings": True,
                 "cookiefile": f"{cookies()}",
+                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -440,6 +457,7 @@ class YouTubeAPI:
                 "prefer_ffmpeg": True,
                 "merge_output_format": "mp4",
                 "cookiefile": f"{cookies()}",
+                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -463,6 +481,7 @@ class YouTubeAPI:
                     }
                 ],
                 "cookiefile": f"{cookies()}",
+                "extractor_args": {"youtubetab": {"skip": ["authcheck"]}},
             }
 
             x = YoutubeDL(ydl_optssx)
@@ -486,7 +505,8 @@ class YouTubeAPI:
                     "-g",
                     "-f",
                     "best[height<=?720][width<=?1280]",
-                    f"--cookies {cookies()}",
+                    "--cookies", cookies(),
+                    "--extractor-args", "youtubetab:skip=authcheck",
                     link,
                 ]
 

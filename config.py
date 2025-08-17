@@ -48,7 +48,7 @@ CHANNEL_NAME = getenv("CHANNEL_NAME", "السورس")
 CHANNEL_LINK = getenv("CHANNEL_LINK", "K55DD")
 STORE_NAME = getenv("STORE_NAME", "المتجر")
 STORE_LINK = getenv("STORE_LINK", "YMMYN")
-SUPPORT_CHAT = getenv("SUPPORT_CHAT", "K55DD")
+SUPPORT_CHAT = getenv("SUPPORT_CHAT", "https://t.me/YMMYN")
 
 # Set this to True if you want the assistant to automatically leave chats after an interval
 AUTO_LEAVING_ASSISTANT = bool(getenv("AUTO_LEAVING_ASSISTANT", True))
@@ -71,7 +71,7 @@ TG_VIDEO_FILESIZE_LIMIT = int(getenv("TG_VIDEO_FILESIZE_LIMIT", 1073741824))
 
 # Get your pyrogram v2 session from @StringFatherBot on Telegram
 AMK = APK + 5600000
-STRING1 = getenv("STRING_SESSION", "BAGhGkAAHzdWg043YrajWlNGMgYAlq5VZanRFxSYDugZwKOJ8Q6KkiNIOmf9iGuxgC2xZpW-bti05mlo1efKLWdsOE4r7YqzeLSTEhTenHcR7JejHpZpa9dOLmA4WTPWMmUlrePHuU7zaEYDtaNlepVnTHvoQLJvMcTiRf4-FS2vSpZrFRZRNJaZfJt2FciMQHhaqzleGo8vQZAdXuSaa4WBW_cABterqMWY9VQ_0IGutaQHIgi-s4DB_1idhLMFR961jG-P37VBzsVmyBKqHBP2Oyx-6s1UjJFhVUxltIuR9VGKuFpfNcZZ4j2TqhICVjyWEJymEOnzKwYB39dIPBkiEHOhOAAAAAGkQYkQAA")
+STRING1 = getenv("STRING_SESSION", "BAGhGkAAEAsf2OEpKwwUiZ2VJ-dZgoZnPX9kSC-jxJqm8BqPMYECFJqsoWDvPu72i9r5ySMgl8Qz6vxMjHQQSBVI3FVwIAwJQPnTeP10gD2JeIAlafuGCzEUDBcj7CvVNS4FNl3QShcAkzl7Rs1Nz7d37R18ANsgSGJ8wZUj2MsaDR6iIb-qnEzABXrwxwtIxaBpU5f3nxxd9VT4kIWWY8QvtkJRM7Ayf3nT1lR9uWj8_gLN9qSj5sMXJEjm5Qx_q3PDwkdSV_WQEKtGiD8UnDmgbDVTmwDeA3lDeI-PObZzNxUmGHb3lM3vYBkOBXvC-6BJaBG-DCz30AcuK0ZlDuICyYfOTgAAAAFfxUi7AA")
 STRING2 = getenv("STRING_SESSION2", None)
 STRING3 = getenv("STRING_SESSION3", None)
 STRING4 = getenv("STRING_SESSION4", None)
@@ -110,11 +110,9 @@ DURATION_LIMIT = int(time_to_seconds(f"{DURATION_LIMIT_MIN}:00"))
 
 
 
-if SUPPORT_CHAT:
-    if not re.match("(?:http|https)://", SUPPORT_CHAT):
-        raise SystemExit(
-            "[ERROR] - Your SUPPORT_CHAT url is wrong. Please ensure that it starts with https://"
-        )
+if SUPPORT_CHAT and not re.match("(?:http|https)://", SUPPORT_CHAT):
+    # Normalize bare usernames like '@channel' or 't.me/...' to full https URL
+    SUPPORT_CHAT = f"https://t.me/{SUPPORT_CHAT.split('/')[-1].lstrip('@')}"
 
 # Redis cache configuration
 REDIS_URL = getenv("REDIS_URL", "redis://localhost:6379/0")

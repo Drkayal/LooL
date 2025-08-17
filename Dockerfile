@@ -9,10 +9,8 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt .
 
-# Install voice-calls stack first to avoid dependency conflicts
+# Install dependencies (py-tgcalls pinned in requirements.txt)
 RUN pip install --upgrade pip \
- && pip install --pre tgcalls==3.0.0.dev6 \
- && pip install --no-deps pytgcalls==2.1.0 \
  && pip install -r requirements.txt
 
 COPY . .

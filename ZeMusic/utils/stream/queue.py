@@ -18,7 +18,11 @@ async def put_queue(
     stream,
     forceplay: Union[bool, str] = None,
 ):
-    title = title.title()
+    # Normalize title to safe string
+    if not isinstance(title, str):
+        title = str(title) if title is not None else "Unknown"
+    else:
+        title = title.title()
     try:
         duration_in_seconds = time_to_seconds(duration) - 3
     except:
@@ -43,6 +47,8 @@ async def put_queue(
             db[chat_id] = []
             db[chat_id].append(put)
     else:
+        if chat_id not in db:
+            db[chat_id] = []
         db[chat_id].append(put)
     autoclean.append(file)
 
@@ -88,4 +94,6 @@ async def put_queue_index(
             db[chat_id] = []
             db[chat_id].append(put)
     else:
+        if chat_id not in db:
+            db[chat_id] = []
         db[chat_id].append(put)

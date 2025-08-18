@@ -236,3 +236,54 @@ async def set_hard_video(video_id: Optional[str], ttl_seconds: int = 900) -> Non
         await r.set(_khard(video_id), "1", ex=ttl_seconds)
     except Exception:
         pass
+
+
+# ===== Global monitoring counters (totals) and per-cookie leaderboards =====
+
+def _kmetrics(field: str) -> str:
+    return _k("metrics", field)
+
+
+def _zcookie(field: str) -> str:
+    # sorted sets for cookie-based leaderboards
+    return _k("cookies:z", field)
+
+
+async def record_global_success(latency_ms: int) -> None:
+    try:
+        r = get_redis()
+        pipe = r.pipeline()
+        pipe.incr(_kmetrics("total"), 1)
+        pipe.incr(_kmetrics("success"), 1)
+        pipe.incrby(_kmetrics("latency_ms_sum"), int(latency_ms))
+        pipe.set(_kmetrics("last_ts"), str(int(time.time())))
+        await pipe.execute()
+    except Exception:
+        pass
+
+
+async def record_global_failure(latency_ms: int, err_code: str = "") -> None:
+    try:
+        r = get_redis()
+        pipe = r.pipeline()
+        pipe.incr(_kmetrics("total"), 1)
+        pipe.incr(_kmetrics("fail"), 1)
+        pipe.incrby(_kmetrics("latency_ms_sum"), int(latency_ms))
+        if err_code:
+            pipe.incr(_kmetrics(f"err:{err_code}"), 1)
+        pipe.set(_kmetrics("last_ts"), str(int(time.time())))
+        await pipe.execute()
+    except Exception:
+        pass
+
+
+async def bump_cookie_leaderboards(cookie_basename: str, success: bool, latency_ms: int) -> None:
+    try:
+        r = get_redis()
+        if success:
+            await r.zincrby(_zcookie("succ"), 1, cookie_basename)
+        else:
+            await r.zincrby(_zcookie("fail"), 1, cookie_basename)
+        await r.zincrby(_zcookie("latency_sum"), int(latency_ms), cookie_basename)
+    except Exception:
+        pass

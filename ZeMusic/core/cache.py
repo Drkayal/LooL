@@ -210,3 +210,29 @@ async def release_video_lock(video_id: Optional[str]) -> None:
         await r.delete(_kvidlock(video_id))
     except Exception:
         pass
+
+
+# ===== Hard video flag (to reduce blind retries for difficult videos) =====
+
+def _khard(video_id: str) -> str:
+    return _k("hard", video_id)
+
+
+async def is_hard_video(video_id: Optional[str]) -> bool:
+    if not video_id:
+        return False
+    r = get_redis()
+    try:
+        return bool(await r.exists(_khard(video_id)))
+    except Exception:
+        return False
+
+
+async def set_hard_video(video_id: Optional[str], ttl_seconds: int = 900) -> None:
+    if not video_id:
+        return
+    r = get_redis()
+    try:
+        await r.set(_khard(video_id), "1", ex=ttl_seconds)
+    except Exception:
+        pass

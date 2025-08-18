@@ -20,28 +20,82 @@ from ZeMusic.utils.decorators import asyncify
 from ZeMusic.core.cache import get_redis
 
 
-def _cookies_folder() -> str:
-    return f"{os.getcwd()}/cookies"
+def _cookie_dirs() -> List[str]:
+    """Return possible directories that may contain cookie files.
+    Priority order: explicit env dir, default 'cookies', and 'strings'.
+    """
+    dirs: List[str] = []
+    # Environment override for a custom cookies directory
+    env_dir = os.getenv("YT_COOKIES_DIR")
+    if env_dir:
+        dirs.append(env_dir)
+    # Project defaults
+    dirs.append(f"{os.getcwd()}/cookies")
+    dirs.append(f"{os.getcwd()}/strings")
+    # Deduplicate while preserving order
+    seen = set()
+    unique_dirs: List[str] = []
+    for d in dirs:
+        if d and d not in seen:
+            seen.add(d)
+            unique_dirs.append(d)
+    return unique_dirs
 
 
 def _cookie_files() -> List[str]:
-    folder_path = _cookies_folder()
-    try:
-        entries = [os.path.join(folder_path, name) for name in os.listdir(folder_path)]
-        files = [p for p in entries if os.path.isfile(p)]
-    except FileNotFoundError:
-        files = []
-    # Prefer Netscape-format cookie files; fall back to any files if none detected
-    valid = []
-    for p in files:
+    """Collect all candidate cookie files from known dirs and env overrides.
+
+    - Accept files that contain the standard Netscape header.
+    - Also accept files that appear to be Netscape TSV cookies (heuristic),
+      regardless of extension or name (to support arbitrary filenames like
+      'cookies_1.py', 'cookies(2).txt', etc.).
+    - Do NOT include obviously invalid files; return an empty list if none valid.
+    - If YT_COOKIES_FILE env is set and valid, prioritize it first.
+    """
+    candidates: List[str] = []
+    # Explicit file override
+    env_file = os.getenv("YT_COOKIES_FILE")
+    if env_file and os.path.isfile(env_file):
+        candidates.append(env_file)
+
+    # Scan known directories
+    for base in _cookie_dirs():
         try:
-            with open(p, "r", encoding="utf-8", errors="ignore") as fh:
-                head = fh.read(2048)
-                if "Netscape HTTP Cookie File" in head:
-                    valid.append(p)
-        except Exception:
+            for name in os.listdir(base):
+                path = os.path.join(base, name)
+                if os.path.isfile(path):
+                    candidates.append(path)
+        except FileNotFoundError:
             continue
-    return valid or files
+
+    def is_netscape_cookie_file(path: str) -> bool:
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                sample = fh.read(4096)
+                if "Netscape HTTP Cookie File" in sample:
+                    return True
+                # Heuristic: find any non-comment, non-empty line with >=6 tab columns
+                for line in sample.splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    # Typical Netscape format has 7 columns, but tolerate 6+
+                    if len(line.split("\t")) >= 6:
+                        return True
+        except Exception:
+            return False
+        return False
+
+    valid: List[str] = [p for p in candidates if is_netscape_cookie_file(p)]
+
+    # De-duplicate while preserving order
+    seen: set = set()
+    filtered: List[str] = []
+    for p in valid:
+        if p not in seen:
+            seen.add(p)
+            filtered.append(p)
+    return filtered
 
 
 def _cookie_basename(path: str) -> str:
@@ -60,7 +114,7 @@ async def get_cookie_candidates() -> List[str]:
     """Return cookie file paths ordered by health/usage (best first). Fallback to shuffled list if Redis unavailable."""
     files = _cookie_files()
     if not files:
-        raise FileNotFoundError("No cookie files found in the cookies folder.")
+        return []
     r = None
     try:
         r = get_redis()
@@ -68,7 +122,7 @@ async def get_cookie_candidates() -> List[str]:
         r = None
     if r is None:
         random.shuffle(files)
-        return [f"cookies/{_cookie_basename(p)}" for p in files]
+        return files
 
     now = int(time.time())
     scored = []
@@ -84,11 +138,11 @@ async def get_cookie_candidates() -> List[str]:
             score = (fail * 1000000) + (usage * 10) + (jitter)
             if cooling and cooling > 0:
                 score += 10_000_000
-            scored.append((score, name))
+            scored.append((score, path))
         except Exception:
-            scored.append((random.randint(0, 1000), name))
+            scored.append((random.randint(0, 1000), path))
     scored.sort(key=lambda x: x[0])
-    return [f"cookies/{name}" for _, name in scored]
+    return [path for _, path in scored]
 
 
 async def report_cookie_success(cookie_path: str) -> None:
@@ -117,15 +171,18 @@ async def report_cookie_failure(cookie_path: str, cooldown_seconds: int = 1800) 
 def cookies():
     files = _cookie_files()
     if not files:
-        raise FileNotFoundError("No cookie files found in the specified folder.")
+        return None
     # Prefer best candidate if possible (non-blocking)
     # Fallback to random choice on any error
     try:
-        # This function is sync; we pick from current list randomly to keep backward compatibility
-        # Rotation and health are handled by get_cookie_candidates for advanced callers
-        return f"cookies/{_cookie_basename(random.choice(files))}"
+        choice = random.choice(files)
+        # Return a path relative to CWD if under known dirs; otherwise absolute
+        for base in _cookie_dirs():
+            if choice.startswith(base.rstrip("/")):
+                return os.path.relpath(choice, os.getcwd())
+        return choice
     except Exception:
-        return f"cookies/{_cookie_basename(random.choice(files))}"
+        return None
 
 
 # Common headers and extractor args to mitigate HTTP 429 and reduce auth checks
@@ -140,14 +197,15 @@ def _http_headers() -> dict:
 
 
 def _extractor_args_py() -> dict:
+    # Try multiple clients to reduce chances of auth/bot checks
     return {
         "youtubetab": {"skip": ["authcheck"]},
-        "youtube": {"player_client": ["android"]},
+        "youtube": {"player_client": ["android", "ios", "tvhtml5", "web_safari", "web"]},
     }
 
 
 def _extractor_args_cli() -> str:
-    return "youtube:player_client=android;youtubetab:skip=authcheck"
+    return "youtube:player_client=android,ios,tvhtml5,web_safari,web;youtubetab:skip=authcheck"
 
 
 def _yt_dlp_base_cmd() -> List[str]:
@@ -269,7 +327,8 @@ class YouTubeAPI:
         try:
             candidates = await get_cookie_candidates()
         except Exception:
-            candidates = [cookies()]
+            c = cookies()
+            candidates = [c] if c else []
         last_err = None
         for cookie_path in candidates:
             cmd = [
@@ -277,7 +336,6 @@ class YouTubeAPI:
                 "-g",
                 "-f",
                 "best[height<=?720][width<=?1280]",
-                "--cookies", cookie_path,
                 "--extractor-args", _extractor_args_cli(),
                 "--user-agent", ANDROID_UA,
                 "--force-ipv4",
@@ -288,6 +346,8 @@ class YouTubeAPI:
                 "--retry-sleep", "1:5",
                 f"{link}",
             ]
+            if cookie_path and os.path.exists(cookie_path):
+                cmd[5:5] = ["--cookies", cookie_path]
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -318,7 +378,8 @@ class YouTubeAPI:
         try:
             candidates = await get_cookie_candidates()
         except Exception:
-            candidates = [cookies()]
+            c = cookies()
+            candidates = [c] if c else []
 
         last_output = ""
         for cookie_path in candidates:
@@ -331,7 +392,6 @@ class YouTubeAPI:
                 "--playlist-end", str(limit),
                 "--skip-download",
                 "--extractor-args", _extractor_args_cli(),
-                "--cookies", cookie_path,
                 "--user-agent", ANDROID_UA,
                 "--force-ipv4",
                 "--geo-bypass",
@@ -341,6 +401,8 @@ class YouTubeAPI:
                 "--retry-sleep", "1:5",
                 f"{link}",
             ]
+            if cookie_path and os.path.exists(cookie_path):
+                cmd[12:12] = ["--cookies", cookie_path]
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -402,10 +464,12 @@ class YouTubeAPI:
             "noplaylist": True,
             "quiet": True,
             "extract_flat": "in_playlist",
-            "cookiefile": f"{cookies()}",
             "http_headers": _http_headers(),
             "extractor_args": _extractor_args_py(),
         }
+        c = cookies()
+        if c and os.path.exists(c):
+            options["cookiefile"] = c
         with YoutubeDL(options) as ydl:
             info_dict = ydl.extract_info(f"ytsearch: {q}", download=False)
             details = info_dict.get("entries")[0]
@@ -431,10 +495,12 @@ class YouTubeAPI:
 
         ytdl_opts = {
             "quiet": True,
-            "cookiefile": f"{cookies()}",
             "http_headers": _http_headers(),
             "extractor_args": _extractor_args_py(),
         }
+        c = cookies()
+        if c and os.path.exists(c):
+            ytdl_opts["cookiefile"] = c
 
         ydl = YoutubeDL(ytdl_opts)
         with ydl:
@@ -507,12 +573,14 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "no_warnings": True,
-                # Prefer an explicit cookie file if provided (for rotation),
-                # otherwise fall back to a random cookie file.
-                "cookiefile": cookie_path_override or f"{cookies()}",
                 "http_headers": _http_headers(),
                 "extractor_args": _extractor_args_py(),
             }
+            c_local = cookie_path_override
+            if not c_local:
+                c_local = cookies()
+            if c_local and os.path.exists(c_local):
+                ydl_optssx["cookiefile"] = c_local
 
             x = YoutubeDL(ydl_optssx)
             info = x.extract_info(link, False)
@@ -530,10 +598,12 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "no_warnings": True,
-                "cookiefile": f"{cookies()}",
                 "http_headers": _http_headers(),
                 "extractor_args": _extractor_args_py(),
             }
+            c_local = cookies()
+            if c_local and os.path.exists(c_local):
+                ydl_optssx["cookiefile"] = c_local
 
             x = YoutubeDL(ydl_optssx)
             info = x.extract_info(link, False)
@@ -555,10 +625,12 @@ class YouTubeAPI:
                 "no_warnings": True,
                 "prefer_ffmpeg": True,
                 "merge_output_format": "mp4",
-                "cookiefile": f"{cookies()}",
                 "http_headers": _http_headers(),
                 "extractor_args": _extractor_args_py(),
             }
+            c_local = cookies()
+            if c_local and os.path.exists(c_local):
+                ydl_optssx["cookiefile"] = c_local
 
             x = YoutubeDL(ydl_optssx)
             x.download([link])
@@ -580,10 +652,12 @@ class YouTubeAPI:
                         "preferredquality": "192",
                     }
                 ],
-                "cookiefile": f"{cookies()}",
                 "http_headers": _http_headers(),
                 "extractor_args": _extractor_args_py(),
             }
+            c_local = cookies()
+            if c_local and os.path.exists(c_local):
+                ydl_optssx["cookiefile"] = c_local
 
             x = YoutubeDL(ydl_optssx)
             x.download([link])
@@ -610,7 +684,8 @@ class YouTubeAPI:
                 try:
                     candidates = await get_cookie_candidates()
                 except Exception:
-                    candidates = [cookies()]
+                    c = cookies()
+                    candidates = [c] if c else []
                 downloaded_file = None
                 last_err = None
                 for cookie_path in candidates:
@@ -619,7 +694,6 @@ class YouTubeAPI:
                         "-g",
                         "-f",
                         "best[height<=?720][width<=?1280]",
-                        "--cookies", cookie_path,
                         "--extractor-args", _extractor_args_cli(),
                         "--user-agent", ANDROID_UA,
                         "--force-ipv4",
@@ -630,6 +704,8 @@ class YouTubeAPI:
                         "--retry-sleep", "1:5",
                         link,
                     ]
+                    if cookie_path and os.path.exists(cookie_path):
+                        command[5:5] = ["--cookies", cookie_path]
                     proc = await asyncio.create_subprocess_exec(
                         *command,
                         stdout=asyncio.subprocess.PIPE,
@@ -663,7 +739,8 @@ class YouTubeAPI:
             try:
                 candidates = await get_cookie_candidates()
             except Exception:
-                candidates = [cookies()]
+                c = cookies()
+                candidates = [c] if c else []
 
             for cookie_path in candidates:
                 try:

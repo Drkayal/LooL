@@ -6,7 +6,7 @@ import re
 import time
 import sys
 import shutil
-from typing import Union, List
+from typing import Union, List, Optional, Tuple
 
 from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
@@ -17,7 +17,19 @@ import config
 from ZeMusic.utils.database import is_on_off
 from ZeMusic.utils.formatters import time_to_seconds, seconds_to_min
 from ZeMusic.utils.decorators import asyncify
-from ZeMusic.core.cache import get_redis
+from ZeMusic.core.cache import (
+    get_redis,
+    extract_youtube_id,
+    get_cached_gurl,
+    set_cached_gurl,
+    acquire_video_lock,
+    release_video_lock,
+)
+
+
+# ===== In-memory cache for cookie file discovery (reduce repeated disk I/O) =====
+_COOKIE_FILES_CACHE: Tuple[List[str], int] = ([], 0)
+_COOKIE_FILES_CACHE_TTL = 300  # 5 minutes
 
 
 def _cookie_dirs() -> List[str]:
@@ -52,6 +64,12 @@ def _cookie_files() -> List[str]:
     - Do NOT include obviously invalid files; return an empty list if none valid.
     - If YT_COOKIES_FILE env is set and valid, prioritize it first.
     """
+    global _COOKIE_FILES_CACHE
+    now = int(time.time())
+    # Serve from in-memory cache if fresh
+    if _COOKIE_FILES_CACHE[1] and (now - _COOKIE_FILES_CACHE[1] < _COOKIE_FILES_CACHE_TTL):
+        return list(_COOKIE_FILES_CACHE[0])
+
     candidates: List[str] = []
     # Explicit file override
     env_file = os.getenv("YT_COOKIES_FILE")
@@ -95,6 +113,8 @@ def _cookie_files() -> List[str]:
         if p not in seen:
             seen.add(p)
             filtered.append(p)
+    # Update in-memory cache
+    _COOKIE_FILES_CACHE = (filtered, now)
     return filtered
 
 
@@ -110,8 +130,15 @@ def _cookie_cooldown_key(name: str) -> str:
     return f"ytcookies:cooldown:{name}"
 
 
+def _cookie_good_key(name: str) -> str:
+    return f"ytcookies:good:{name}"
+
+
 async def get_cookie_candidates() -> List[str]:
-    """Return cookie file paths ordered by health/usage (best first). Fallback to shuffled list if Redis unavailable."""
+    """Return cookie file paths ordered by health/usage (best first).
+    Prioritize recently-successful ("good") cookies. Use pipeline for Redis ops.
+    Fallback to shuffled list if Redis unavailable.
+    """
     files = _cookie_files()
     if not files:
         return []
@@ -124,20 +151,37 @@ async def get_cookie_candidates() -> List[str]:
         random.shuffle(files)
         return files
 
-    now = int(time.time())
-    scored = []
+    pipe = r.pipeline()
+    names: List[str] = []
     for path in files:
         name = _cookie_basename(path)
+        names.append(name)
+        pipe.ttl(_cookie_cooldown_key(name))
+        pipe.hgetall(_cookie_key(name))
+        pipe.exists(_cookie_good_key(name))
+    try:
+        results = await pipe.execute()
+    except Exception:
+        # Fallback if pipeline fails
+        random.shuffle(files)
+        return files
+
+    # Parse results in triplets
+    scored: List[Tuple[int, str]] = []
+    for idx, path in enumerate(files):
         try:
-            cooling = await r.ttl(_cookie_cooldown_key(name))
-            h = await r.hgetall(_cookie_key(name)) or {}
+            cooling = results[(idx * 3) + 0]
+            h = results[(idx * 3) + 1] or {}
+            is_good = 1 if results[(idx * 3) + 2] else 0
             usage = int(h.get("usage", 0))
             fail = int(h.get("fail", 0))
-            # Lower score is better. Penalize failures heavily; spread by usage; slight randomness to avoid ties
             jitter = random.randint(0, 5)
-            score = (fail * 1000000) + (usage * 10) + (jitter)
+            # Lower score is better. Penalize failures heavily; "good" gets strong priority
+            score = (fail * 1_000_000) + (usage * 10) + jitter
             if cooling and cooling > 0:
                 score += 10_000_000
+            if is_good:
+                score -= 5_000_000
             scored.append((score, path))
         except Exception:
             scored.append((random.randint(0, 1000), path))
@@ -152,6 +196,8 @@ async def report_cookie_success(cookie_path: str) -> None:
         name = _cookie_basename(cookie_path)
         await r.hincrby(_cookie_key(name), "usage", 1)
         await r.hset(_cookie_key(name), "ts", str(int(time.time())))
+        # Mark as good for 10 minutes
+        await r.set(_cookie_good_key(name), "1", ex=600)
     except Exception:
         pass
 
@@ -193,7 +239,11 @@ ANDROID_UA = (
 
 
 def _http_headers() -> dict:
-    return {"User-Agent": ANDROID_UA, "Accept-Language": "en-US,en;q=0.5"}
+    return {
+        "User-Agent": ANDROID_UA,
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    }
 
 
 def _extractor_args_py() -> dict:
@@ -324,49 +374,104 @@ class YouTubeAPI:
             link = self.base + link
         if "&" in link:
             link = link.split("&")[0]
+        # Attempt to extract a stable video_id for caching/locking
+        v_id: Optional[str] = None
+        try:
+            v_id = extract_youtube_id(link)
+        except Exception:
+            v_id = None
+        # Check cached direct url
+        if v_id:
+            try:
+                cached = await get_cached_gurl(v_id)
+                if cached:
+                    return 1, cached
+            except Exception:
+                pass
+        # Try to acquire short lock to avoid storms
+        lock_acquired = True
+        if v_id:
+            try:
+                lock_acquired = await acquire_video_lock(v_id, ttl_seconds=120)
+            except Exception:
+                lock_acquired = True
         try:
             candidates = await get_cookie_candidates()
         except Exception:
             c = cookies()
             candidates = [c] if c else []
         last_err = None
+        UA_POOL = [
+            ANDROID_UA,
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        ]
         for cookie_path in candidates:
-            cmd = [
-                *_yt_dlp_base_cmd(),
-                "-g",
-                "-f",
+            ua = random.choice(UA_POOL) if UA_POOL else ANDROID_UA
+            # Try 720p first, then 480p with the same cookie before rotating
+            for fmt in (
                 "best[height<=?720][width<=?1280]",
-                "--extractor-args", _extractor_args_cli(),
-                "--user-agent", ANDROID_UA,
-                "--force-ipv4",
-                "--geo-bypass",
-                "--geo-bypass-country", "US",
-                "--no-check-certificates",
-                "--retries", "3",
-                "--retry-sleep", "1:5",
-                f"{link}",
-            ]
-            if cookie_path and os.path.exists(cookie_path):
-                cmd[5:5] = ["--cookies", cookie_path]
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            if stdout:
-                try:
-                    await report_cookie_success(cookie_path)
-                except Exception:
-                    pass
-                return 1, stdout.decode().split("\n")[0]
-            else:
-                last_err = stderr.decode()
-                try:
-                    await report_cookie_failure(cookie_path)
-                except Exception:
-                    pass
-                continue
+                "best[height<=?480][width<=?854]",
+            ):
+                cmd = [
+                    *_yt_dlp_base_cmd(),
+                    "-g",
+                    "-f",
+                    fmt,
+                    "--extractor-args", _extractor_args_cli(),
+                    "--user-agent", ua,
+                    "--add-header", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "--add-header", "Accept-Language: en-US,en;q=0.5",
+                    "--force-ipv4",
+                    "--geo-bypass",
+                    "--geo-bypass-country", "US",
+                    "--no-check-certificates",
+                    "--retries", "3",
+                    "--retry-sleep", "1:5",
+                    f"{link}",
+                ]
+                if cookie_path and os.path.exists(cookie_path):
+                    cmd[5:5] = ["--cookies", cookie_path]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+                if stdout:
+                    out_url = stdout.decode().split("\n")[0]
+                    try:
+                        await report_cookie_success(cookie_path)
+                    except Exception:
+                        pass
+                    if v_id and out_url:
+                        try:
+                            await set_cached_gurl(v_id, out_url, ttl_seconds=120)
+                        except Exception:
+                            pass
+                    if v_id and lock_acquired:
+                        try:
+                            await release_video_lock(v_id)
+                        except Exception:
+                            pass
+                    return 1, out_url
+                else:
+                    last_err = (stderr.decode() if stderr else "")
+                    cool = 1800
+                    if last_err and ("sign in to confirm" in last_err.lower()):
+                        cool = 7200  # 2 hours cooldown for bot-detected cookies
+                    try:
+                        await report_cookie_failure(cookie_path, cooldown_seconds=cool)
+                    except Exception:
+                        pass
+                    # try next fmt or next cookie
+            # end fmt loop
+        if v_id and lock_acquired:
+            try:
+                await release_video_lock(v_id)
+            except Exception:
+                pass
         return 0, (last_err or "yt-dlp failed with all cookies")
 
     async def playlist(self, link, limit, videoid: Union[bool, str] = None):
@@ -393,6 +498,8 @@ class YouTubeAPI:
                 "--skip-download",
                 "--extractor-args", _extractor_args_cli(),
                 "--user-agent", ANDROID_UA,
+                "--add-header", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "--add-header", "Accept-Language: en-US,en;q=0.5",
                 "--force-ipv4",
                 "--geo-bypass",
                 "--geo-bypass-country", "US",
@@ -688,45 +795,87 @@ class YouTubeAPI:
                     candidates = [c] if c else []
                 downloaded_file = None
                 last_err = None
-                for cookie_path in candidates:
-                    command = [
-                        *_yt_dlp_base_cmd(),
-                        "-g",
-                        "-f",
-                        "best[height<=?720][width<=?1280]",
-                        "--extractor-args", _extractor_args_cli(),
-                        "--user-agent", ANDROID_UA,
-                        "--force-ipv4",
-                        "--geo-bypass",
-                        "--geo-bypass-country", "US",
-                        "--no-check-certificates",
-                        "--retries", "3",
-                        "--retry-sleep", "1:5",
-                        link,
-                    ]
-                    if cookie_path and os.path.exists(cookie_path):
-                        command[5:5] = ["--cookies", cookie_path]
-                    proc = await asyncio.create_subprocess_exec(
-                        *command,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    stdout, stderr = await proc.communicate()
-                    if stdout:
-                        try:
-                            await report_cookie_success(cookie_path)
-                        except Exception:
-                            pass
-                        downloaded_file = stdout.decode().split("\n")[0]
-                        direct = None
-                        break
-                    else:
-                        last_err = stderr.decode()
-                        try:
-                            await report_cookie_failure(cookie_path)
-                        except Exception:
-                            pass
-                        continue
+                # Per-video short cache/lock for -g
+                v_id = None
+                try:
+                    v_id = extract_youtube_id(link)
+                except Exception:
+                    v_id = None
+                if v_id:
+                    try:
+                        cached = await get_cached_gurl(v_id)
+                        if cached:
+                            downloaded_file = cached
+                            direct = None
+                    except Exception:
+                        pass
+                if not downloaded_file and v_id:
+                    try:
+                        await acquire_video_lock(v_id, ttl_seconds=120)
+                    except Exception:
+                        pass
+                if not downloaded_file:
+                    for cookie_path in candidates:
+                        ua = ANDROID_UA
+                        for fmt in (
+                            "best[height<=?720][width<=?1280]",
+                            "best[height<=?480][width<=?854]",
+                        ):
+                            command = [
+                                *_yt_dlp_base_cmd(),
+                                "-g",
+                                "-f",
+                                fmt,
+                                "--extractor-args", _extractor_args_cli(),
+                                "--user-agent", ua,
+                                "--add-header", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                                "--add-header", "Accept-Language: en-US,en;q=0.5",
+                                "--force-ipv4",
+                                "--geo-bypass",
+                                "--geo-bypass-country", "US",
+                                "--no-check-certificates",
+                                "--retries", "3",
+                                "--retry-sleep", "1:5",
+                                link,
+                            ]
+                            if cookie_path and os.path.exists(cookie_path):
+                                command[5:5] = ["--cookies", cookie_path]
+                            proc = await asyncio.create_subprocess_exec(
+                                *command,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                            )
+                            stdout, stderr = await proc.communicate()
+                            if stdout:
+                                try:
+                                    await report_cookie_success(cookie_path)
+                                except Exception:
+                                    pass
+                                downloaded_file = stdout.decode().split("\n")[0]
+                                direct = None
+                                break
+                            else:
+                                last_err = stderr.decode()
+                                cool = 1800
+                                if last_err and ("sign in to confirm" in last_err.lower()):
+                                    cool = 7200
+                                try:
+                                    await report_cookie_failure(cookie_path, cooldown_seconds=cool)
+                                except Exception:
+                                    pass
+                                continue
+                        if downloaded_file:
+                            break
+                if v_id and downloaded_file:
+                    try:
+                        await set_cached_gurl(v_id, downloaded_file, ttl_seconds=120)
+                    except Exception:
+                        pass
+                if v_id:
+                    try:
+                        await release_video_lock(v_id)
+                    except Exception:
+                        pass
                 if not downloaded_file:
                     return
         else:

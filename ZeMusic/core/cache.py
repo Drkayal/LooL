@@ -158,3 +158,55 @@ async def release_lock(q: str) -> None:
         await r.delete(_k("lock", qn))
     except Exception:
         pass
+
+
+# ===== Direct URL (-g) cache and per-video locks =====
+
+def _kgurl(video_id: str) -> str:
+    return _k("gurl", video_id)
+
+
+def _kvidlock(video_id: str) -> str:
+    return _k("vidlock", video_id)
+
+
+async def get_cached_gurl(video_id: Optional[str]) -> Optional[str]:
+    if not video_id:
+        return None
+    r = get_redis()
+    try:
+        url = await r.get(_kgurl(video_id))
+        return url
+    except Exception:
+        return None
+
+
+async def set_cached_gurl(video_id: Optional[str], url: Optional[str], ttl_seconds: int = 120) -> None:
+    if not video_id or not url:
+        return
+    r = get_redis()
+    try:
+        await r.set(_kgurl(video_id), url, ex=ttl_seconds)
+    except Exception:
+        pass
+
+
+async def acquire_video_lock(video_id: Optional[str], ttl_seconds: int = 120) -> bool:
+    if not video_id:
+        return True
+    r = get_redis()
+    try:
+        ok = await r.set(_kvidlock(video_id), "1", ex=ttl_seconds, nx=True)
+        return ok is True
+    except Exception:
+        return True
+
+
+async def release_video_lock(video_id: Optional[str]) -> None:
+    if not video_id:
+        return
+    r = get_redis()
+    try:
+        await r.delete(_kvidlock(video_id))
+    except Exception:
+        pass

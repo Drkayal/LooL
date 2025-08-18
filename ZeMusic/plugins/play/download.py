@@ -144,7 +144,6 @@ async def song_downloader(client, message: Message):
             "geo_bypass": True,
             "outtmpl": f"{title_clean}.%(ext)s",  # استخدام اسم نظيف للملف
             "quiet": True,
-            "cookiefile": cookie_path,
             "noplaylist": True,
             "http_headers": _http_headers(),
             "extractor_args": _extractor_args_py(),
@@ -153,6 +152,12 @@ async def song_downloader(client, message: Message):
             "geo_bypass": True,
             "nocheckcertificate": True,
         }
+        # أضف ملف الكوكيز فقط إذا كان مسارًا صالحًا
+        try:
+            if cookie_path and os.path.isfile(cookie_path):
+                ydl_opts["cookiefile"] = cookie_path
+        except Exception:
+            pass
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info_dict = ydl.extract_info(link, download=True)  # التنزيل مباشرة

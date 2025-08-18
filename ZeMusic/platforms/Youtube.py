@@ -499,7 +499,7 @@ class YouTubeAPI:
             link = self.base + link
         loop = asyncio.get_running_loop()
 
-        def audio_dl():
+        def audio_dl(cookie_path_override: str = None):
             ydl_optssx = {
                 "format": "bestaudio/best",
                 "outtmpl": "downloads/%(id)s.%(ext)s",
@@ -507,7 +507,9 @@ class YouTubeAPI:
                 "nocheckcertificate": True,
                 "quiet": True,
                 "no_warnings": True,
-                "cookiefile": f"{cookies()}",
+                # Prefer an explicit cookie file if provided (for rotation),
+                # otherwise fall back to a random cookie file.
+                "cookiefile": cookie_path_override or f"{cookies()}",
                 "http_headers": _http_headers(),
                 "extractor_args": _extractor_args_py(),
             }
@@ -595,7 +597,13 @@ class YouTubeAPI:
             fpath = f"downloads/{title}.mp3"
             return fpath
         elif video:
-            if await is_on_off(config.YTDOWNLOADER):
+            # Safely check optional toggle without crashing if missing in config
+            ytdownloader_on = False
+            try:
+                ytdownloader_on = await is_on_off(getattr(config, "YTDOWNLOADER", 0))
+            except Exception:
+                ytdownloader_on = False
+            if ytdownloader_on:
                 direct = True
                 downloaded_file = await loop.run_in_executor(None, video_dl)
             else:
@@ -646,7 +654,35 @@ class YouTubeAPI:
                 if not downloaded_file:
                     return
         else:
+            # Audio-only: rotate cookies like the search/download commands do,
+            # instead of relying on a single random cookie file. This
+            # dramatically reduces failures that manifest as play_14.
             direct = True
-            downloaded_file = await loop.run_in_executor(None, audio_dl)
+            downloaded_file = None
+            last_err = None
+            try:
+                candidates = await get_cookie_candidates()
+            except Exception:
+                candidates = [cookies()]
+
+            for cookie_path in candidates:
+                try:
+                    downloaded_file = await loop.run_in_executor(None, audio_dl, cookie_path)
+                    try:
+                        await report_cookie_success(cookie_path)
+                    except Exception:
+                        pass
+                    break
+                except Exception as e:
+                    last_err = e
+                    try:
+                        await report_cookie_failure(cookie_path)
+                    except Exception:
+                        pass
+                    continue
+
+            # Final fallback: try once without forcing a specific cookie (random file)
+            if not downloaded_file:
+                downloaded_file = await loop.run_in_executor(None, audio_dl)
 
         return downloaded_file, direct

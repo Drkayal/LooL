@@ -432,7 +432,8 @@ class YouTubeAPI:
                     f"{link}",
                 ]
                 if cookie_path and os.path.exists(cookie_path):
-                    cmd[5:5] = ["--cookies", cookie_path]
+                    # Safely place cookies option right before the URL
+                    cmd[-1:-1] = ["--cookies", cookie_path]
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
@@ -509,7 +510,8 @@ class YouTubeAPI:
                 f"{link}",
             ]
             if cookie_path and os.path.exists(cookie_path):
-                cmd[12:12] = ["--cookies", cookie_path]
+                # Safely place cookies option right before the URL
+                cmd[-1:-1] = ["--cookies", cookie_path]
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -839,7 +841,8 @@ class YouTubeAPI:
                                 link,
                             ]
                             if cookie_path and os.path.exists(cookie_path):
-                                command[5:5] = ["--cookies", cookie_path]
+                                # Safely place cookies option right before the URL
+                                command[-1:-1] = ["--cookies", cookie_path]
                             proc = await asyncio.create_subprocess_exec(
                                 *command,
                                 stdout=asyncio.subprocess.PIPE,

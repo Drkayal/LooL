@@ -158,3 +158,132 @@ async def release_lock(q: str) -> None:
         await r.delete(_k("lock", qn))
     except Exception:
         pass
+
+
+# ===== Direct URL (-g) cache and per-video locks =====
+
+def _kgurl(video_id: str) -> str:
+    return _k("gurl", video_id)
+
+
+def _kvidlock(video_id: str) -> str:
+    return _k("vidlock", video_id)
+
+
+async def get_cached_gurl(video_id: Optional[str]) -> Optional[str]:
+    if not video_id:
+        return None
+    r = get_redis()
+    try:
+        url = await r.get(_kgurl(video_id))
+        return url
+    except Exception:
+        return None
+
+
+async def set_cached_gurl(video_id: Optional[str], url: Optional[str], ttl_seconds: int = 120) -> None:
+    if not video_id or not url:
+        return
+    r = get_redis()
+    try:
+        await r.set(_kgurl(video_id), url, ex=ttl_seconds)
+    except Exception:
+        pass
+
+
+async def acquire_video_lock(video_id: Optional[str], ttl_seconds: int = 120) -> bool:
+    if not video_id:
+        return True
+    r = get_redis()
+    try:
+        ok = await r.set(_kvidlock(video_id), "1", ex=ttl_seconds, nx=True)
+        return ok is True
+    except Exception:
+        return True
+
+
+async def release_video_lock(video_id: Optional[str]) -> None:
+    if not video_id:
+        return
+    r = get_redis()
+    try:
+        await r.delete(_kvidlock(video_id))
+    except Exception:
+        pass
+
+
+# ===== Hard video flag (to reduce blind retries for difficult videos) =====
+
+def _khard(video_id: str) -> str:
+    return _k("hard", video_id)
+
+
+async def is_hard_video(video_id: Optional[str]) -> bool:
+    if not video_id:
+        return False
+    r = get_redis()
+    try:
+        return bool(await r.exists(_khard(video_id)))
+    except Exception:
+        return False
+
+
+async def set_hard_video(video_id: Optional[str], ttl_seconds: int = 900) -> None:
+    if not video_id:
+        return
+    r = get_redis()
+    try:
+        await r.set(_khard(video_id), "1", ex=ttl_seconds)
+    except Exception:
+        pass
+
+
+# ===== Global monitoring counters (totals) and per-cookie leaderboards =====
+
+def _kmetrics(field: str) -> str:
+    return _k("metrics", field)
+
+
+def _zcookie(field: str) -> str:
+    # sorted sets for cookie-based leaderboards
+    return _k("cookies:z", field)
+
+
+async def record_global_success(latency_ms: int) -> None:
+    try:
+        r = get_redis()
+        pipe = r.pipeline()
+        pipe.incr(_kmetrics("total"), 1)
+        pipe.incr(_kmetrics("success"), 1)
+        pipe.incrby(_kmetrics("latency_ms_sum"), int(latency_ms))
+        pipe.set(_kmetrics("last_ts"), str(int(time.time())))
+        await pipe.execute()
+    except Exception:
+        pass
+
+
+async def record_global_failure(latency_ms: int, err_code: str = "") -> None:
+    try:
+        r = get_redis()
+        pipe = r.pipeline()
+        pipe.incr(_kmetrics("total"), 1)
+        pipe.incr(_kmetrics("fail"), 1)
+        pipe.incrby(_kmetrics("latency_ms_sum"), int(latency_ms))
+        if err_code:
+            pipe.incr(_kmetrics(f"err:{err_code}"), 1)
+        pipe.set(_kmetrics("last_ts"), str(int(time.time())))
+        await pipe.execute()
+    except Exception:
+        pass
+
+
+async def bump_cookie_leaderboards(cookie_basename: str, success: bool, latency_ms: int) -> None:
+    try:
+        r = get_redis()
+        if success:
+            await r.zincrby(_zcookie("succ"), 1, cookie_basename)
+        else:
+            await r.zincrby(_zcookie("fail"), 1, cookie_basename)
+        await r.zincrby(_zcookie("latency_sum"), int(latency_ms), cookie_basename)
+    except Exception:
+        pass

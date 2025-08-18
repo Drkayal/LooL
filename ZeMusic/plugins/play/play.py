@@ -168,7 +168,6 @@ async def play_commnd(
                     details = await YouTube.playlist(
                         url,
                         config.PLAYLIST_FETCH_LIMIT,
-                        message.from_user.id,
                     )
                 except:
                     return await mystic.edit_text(_["play_3"])
@@ -563,7 +562,6 @@ async def play_playlists_command(client, CallbackQuery, _):
             result = await YouTube.playlist(
                 videoid,
                 config.PLAYLIST_FETCH_LIMIT,
-                CallbackQuery.from_user.id,
                 True,
             )
         except:

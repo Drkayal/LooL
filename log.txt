@@ -10,3 +10,9 @@
 [19-Aug-25 01:25:49 - INFO] - ZeMusic.core.git - Git Client Found [VPS DEPLOYER]
 [19-Aug-25 01:25:49 - INFO] - ZeMusic.misc - Local Database Initialized.
 [19-Aug-25 01:25:49 - INFO] - ZeMusic.core.bot - يتم تشغيل البوت..
+[19-Aug-25 01:46:30 - INFO] - ZeMusic.core.mongo - يتم رفع البيانات...
+[19-Aug-25 01:46:30 - INFO] - ZeMusic.core.mongo - تم رفع البيانات.
+[19-Aug-25 01:46:30 - INFO] - ZeMusic.core.dir - تم اكتمال التحميل.
+[19-Aug-25 01:46:30 - INFO] - ZeMusic.core.git - Git Client Found [VPS DEPLOYER]
+[19-Aug-25 01:46:30 - INFO] - ZeMusic.misc - Local Database Initialized.
+[19-Aug-25 01:46:30 - INFO] - ZeMusic.core.bot - يتم تشغيل البوت..

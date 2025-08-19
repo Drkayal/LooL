@@ -142,3 +142,15 @@ PLATFORM_FALLBACK_ORDER = [
 # User notification settings
 NOTIFY_YOUTUBE_ISSUES = True
 SUGGEST_ALTERNATIVES = True
+
+# ===== YouTube API Configuration =====
+YT_API_KEYS = [
+    "AIzaSyA3x5N5DNYzd5j7L7JMn9XsUYil32Ak77U",
+    "AIzaSyDw09GqGziUHXZ3FjugOypSXD7tedWzIzQ"
+    # أضف مفاتيحك هنا
+]
+
+# YouTube API settings
+YT_API_ENABLED = True
+YT_API_FALLBACK = True  # Use API when cookies fail
+YT_API_QUOTA_PER_DAY = 10000  # Daily quota per key

@@ -28,6 +28,18 @@ from ZeMusic.utils.logger import play_logs
 from ZeMusic.utils.stream.stream import stream
 from config import BANNED_USERS, lyrical
 
+# Enhanced YouTube system
+try:
+    from ZeMusic.utils.enhanced_youtube import (
+        get_youtube_info_fast,
+        suggest_youtube_alternatives,
+        enhanced_youtube
+    )
+    from ZeMusic.utils.youtube_api_helper import is_youtube_url
+    ENHANCED_YOUTUBE_AVAILABLE = True
+except ImportError:
+    ENHANCED_YOUTUBE_AVAILABLE = False
+
 Nem = config.BOT_NAME + " شغل"
 @app.on_message(
     filters.command(
@@ -163,13 +175,22 @@ async def play_commnd(
         return
     elif url:
         if await YouTube.exists(url):
+            # Enhanced YouTube handling
+            if ENHANCED_YOUTUBE_AVAILABLE and await is_youtube_url(url):
+                # Get quick info first
+                quick_info = await get_youtube_info_fast(url, mystic)
+                if quick_info:
+                    await mystic.edit_text(f"✅ تم العثور على: {quick_info['title'][:50]}...\n⬇️ جاري التحميل...")
+            
             if "playlist" in url:
                 try:
                     details = await YouTube.playlist(
                         url,
                         config.PLAYLIST_FETCH_LIMIT,
                     )
-                except:
+                except Exception as e:
+                    if ENHANCED_YOUTUBE_AVAILABLE:
+                        await suggest_youtube_alternatives(url, mystic)
                     return await mystic.edit_text(_["play_3"])
                 streamtype = "playlist"
                 plist_type = "yt"
@@ -182,7 +203,11 @@ async def play_commnd(
             else:
                 try:
                     details, track_id = await YouTube.track(url)
-                except:
+                except Exception as e:
+                    # Enhanced error handling for YouTube
+                    if ENHANCED_YOUTUBE_AVAILABLE and "Sign in to confirm" in str(e):
+                        await suggest_youtube_alternatives(url, mystic)
+                        return
                     return await mystic.edit_text(_["play_3"])
                 streamtype = "youtube"
                 img = details["thumb"]
@@ -335,7 +360,18 @@ async def play_commnd(
             query = query.replace("-v", "")
         try:
             details, track_id = await YouTube.track(query)
-        except:
+        except Exception as e:
+            # Enhanced search error handling
+            if ENHANCED_YOUTUBE_AVAILABLE and "Sign in to confirm" in str(e):
+                await mystic.edit_text(
+                    f"🔍 **البحث عن:** {query}\n\n"
+                    f"⚠️ مشكلة مؤقتة في YouTube\n\n"
+                    f"💡 **جرب:**\n"
+                    f"• تبسيط البحث: `{query.split('-')[0].strip() if '-' in query else query.split('|')[0].strip()}`\n"
+                    f"• البحث في منصات أخرى\n"
+                    f"• المحاولة مرة أخرى بعد 10 دقائق"
+                )
+                return
             return await mystic.edit_text(_["play_3"])
         streamtype = "youtube"
     if str(playmode) == "Direct":

@@ -119,3 +119,38 @@ REDIS_URL = getenv("REDIS_URL", "redis://localhost:6379/0")
 REDIS_PASSWORD = getenv("REDIS_PASSWORD", None)
 CACHE_TTL_SECONDS = int(getenv("CACHE_TTL_SECONDS", 60 * 60 * 24 * 30))  # 30 days
 CACHE_SCHEMA_VERSION = int(getenv("CACHE_SCHEMA_VERSION", 1))
+
+# YouTube cookies configuration - Force use of strings/cookies.txt
+YT_COOKIES_FILE = getenv("YT_COOKIES_FILE", "strings/cookies.txt")
+
+
+# ===== YouTube Fallback Configuration =====
+YOUTUBE_FALLBACK_ENABLED = True
+YOUTUBE_RETRY_DELAY = 15  # seconds between retries
+YOUTUBE_MAX_RETRIES = 2
+YOUTUBE_USE_PROXY = False  # Set to True if you have proxy
+
+# Platform priority when YouTube fails
+PLATFORM_FALLBACK_ORDER = [
+    "Spotify",
+    "SoundCloud", 
+    "Apple",
+    "Resso",
+    "YouTube"  # Last resort
+]
+
+# User notification settings
+NOTIFY_YOUTUBE_ISSUES = True
+SUGGEST_ALTERNATIVES = True
+
+# ===== YouTube API Configuration =====
+YT_API_KEYS = [
+    "AIzaSyA3x5N5DNYzd5j7L7JMn9XsUYil32Ak77U",
+    "AIzaSyDw09GqGziUHXZ3FjugOypSXD7tedWzIzQ"
+    # أضف مفاتيحك هنا
+]
+
+# YouTube API settings
+YT_API_ENABLED = True
+YT_API_FALLBACK = True  # Use API when cookies fail
+YT_API_QUOTA_PER_DAY = 10000  # Daily quota per key

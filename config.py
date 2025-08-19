@@ -119,3 +119,6 @@ REDIS_URL = getenv("REDIS_URL", "redis://localhost:6379/0")
 REDIS_PASSWORD = getenv("REDIS_PASSWORD", None)
 CACHE_TTL_SECONDS = int(getenv("CACHE_TTL_SECONDS", 60 * 60 * 24 * 30))  # 30 days
 CACHE_SCHEMA_VERSION = int(getenv("CACHE_SCHEMA_VERSION", 1))
+
+# YouTube cookies configuration - Force use of strings/cookies.txt
+YT_COOKIES_FILE = getenv("YT_COOKIES_FILE", "strings/cookies.txt")

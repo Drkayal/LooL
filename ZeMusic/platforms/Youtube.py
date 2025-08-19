@@ -72,15 +72,31 @@ def _cookie_files() -> List[str]:
         return list(_COOKIE_FILES_CACHE[0])
 
     candidates: List[str] = []
+    
+    # Priority 1: Environment variable
     env_file = os.getenv("YT_COOKIES_FILE")
     if env_file and os.path.isfile(env_file):
         candidates.append(env_file)
+    
+    # Priority 2: Known good cookies from strings directory
+    priority_cookies = [
+        f"{os.getcwd()}/strings/cookies.txt",
+        f"{os.getcwd()}/cookies/cookies.txt",
+        f"{os.getcwd()}/cookies/cookies_1.txt",
+        f"{os.getcwd()}/cookies/cookies(2).txt",
+        f"{os.getcwd()}/cookies/cookies(3).txt"
+    ]
+    
+    for cookie_path in priority_cookies:
+        if os.path.isfile(cookie_path):
+            candidates.append(cookie_path)
 
+    # Priority 3: Scan directories for other cookie files
     for base in _cookie_dirs():
         try:
             for name in os.listdir(base):
                 path = os.path.join(base, name)
-                if os.path.isfile(path):
+                if os.path.isfile(path) and path not in candidates:
                     candidates.append(path)
         except FileNotFoundError:
             continue
@@ -89,14 +105,21 @@ def _cookie_files() -> List[str]:
         try:
             with open(path, "r", encoding="utf-8", errors="ignore") as fh:
                 sample = fh.read(4096)
-                if "Netscape HTTP Cookie File" in sample:
+                # Check for Netscape format AND YouTube cookies
+                has_netscape_format = "Netscape HTTP Cookie File" in sample
+                has_youtube_cookies = ".youtube.com" in sample or "youtube.com" in sample
+                
+                if has_netscape_format and has_youtube_cookies:
                     return True
-                for line in sample.splitlines():
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    if len(line.split("\t")) >= 6:
-                        return True
+                    
+                # Fallback: check for TSV format with YouTube cookies
+                if has_youtube_cookies:
+                    for line in sample.splitlines():
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if len(line.split("\t")) >= 6 and "youtube.com" in line:
+                            return True
         except Exception:
             return False
         return False
@@ -242,12 +265,15 @@ def _http_headers() -> dict:
 def _extractor_args_py() -> dict:
     return {
         "youtubetab": {"skip": ["authcheck"]},
-        "youtube": {"player_client": ["android", "ios", "tvhtml5", "web_safari", "web"]},
+        "youtube": {
+            "player_client": ["android_creator", "android", "ios", "tvhtml5", "web_safari", "web"],
+            "skip": ["authcheck", "dash", "hls"]
+        },
     }
 
 
 def _extractor_args_cli() -> str:
-    return "youtube:player_client=android,ios,tvhtml5,web_safari,web;youtubetab:skip=authcheck"
+    return "youtube:player_client=android_creator,android,ios,tvhtml5,web_safari,web:skip=authcheck,dash,hls;youtubetab:skip=authcheck"
 
 
 def _yt_dlp_base_cmd() -> List[str]:
@@ -706,52 +732,95 @@ class YouTubeAPI:
         loop = asyncio.get_running_loop()
 
         def audio_dl(cookie_path_override: str = None):
-            ydl_optssx = {
-                "format": "bestaudio/best",
-                "outtmpl": "downloads/%(id)s.%(ext)s",
-                "geo_bypass": True,
-                "nocheckcertificate": True,
-                "quiet": True,
-                "no_warnings": True,
-                "http_headers": _http_headers(),
-                "extractor_args": _extractor_args_py(),
-            }
-            c_local = cookie_path_override
-            if not c_local:
-                c_local = cookies()
-            if c_local and os.path.exists(c_local):
-                ydl_optssx["cookiefile"] = c_local
-
-            x = YoutubeDL(ydl_optssx)
-            info = x.extract_info(link, False)
-            xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
-            if os.path.exists(xyz):
-                return xyz
-            x.download([link])
-            return xyz
+            # Try multiple fallback formats
+            formats = [
+                "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+                "best[height<=720]/best",
+                "worst"
+            ]
+            
+            for format_str in formats:
+                try:
+                    ydl_optssx = {
+                        "format": format_str,
+                        "outtmpl": "downloads/%(id)s.%(ext)s",
+                        "geo_bypass": True,
+                        "nocheckcertificate": True,
+                        "quiet": True,
+                        "no_warnings": True,
+                        "http_headers": _http_headers(),
+                        "extractor_args": _extractor_args_py(),
+                    }
+                    
+                    # Try different cookie files
+                    cookie_files = _cookie_files()
+                    if cookie_path_override:
+                        cookie_files.insert(0, cookie_path_override)
+                    
+                    for c_local in cookie_files:
+                        if c_local and os.path.exists(c_local):
+                            ydl_optssx["cookiefile"] = c_local
+                            break
+                    
+                    x = YoutubeDL(ydl_optssx)
+                    info = x.extract_info(link, False)
+                    xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
+                    if os.path.exists(xyz):
+                        return xyz
+                    x.download([link])
+                    return xyz
+                    
+                except Exception as e:
+                    if "Sign in to confirm" in str(e) and format_str != formats[-1]:
+                        continue  # Try next format
+                    elif format_str == formats[-1]:
+                        raise  # Re-raise on last attempt
+            
+            return None
 
         def video_dl():
-            ydl_optssx = {
-                "format": "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio[ext=m4a])",
-                "outtmpl": "downloads/%(id)s.%(ext)s",
-                "geo_bypass": True,
-                "nocheckcertificate": True,
-                "quiet": True,
-                "no_warnings": True,
-                "http_headers": _http_headers(),
-                "extractor_args": _extractor_args_py(),
-            }
-            c_local = cookies()
-            if c_local and os.path.exists(c_local):
-                ydl_optssx["cookiefile"] = c_local
+            # Try multiple video formats as fallback
+            formats = [
+                "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio[ext=m4a])",
+                "best[height<=720]/best[ext=mp4]/best",
+                "worst[ext=mp4]/worst"
+            ]
+            
+            for format_str in formats:
+                try:
+                    ydl_optssx = {
+                        "format": format_str,
+                        "outtmpl": "downloads/%(id)s.%(ext)s",
+                        "geo_bypass": True,
+                        "nocheckcertificate": True,
+                        "quiet": True,
+                        "no_warnings": True,
+                        "http_headers": _http_headers(),
+                        "extractor_args": _extractor_args_py(),
+                    }
+                    
+                    # Use the best available cookie file
+                    cookie_files = _cookie_files()
+                    for c_local in cookie_files:
+                        if c_local and os.path.exists(c_local):
+                            ydl_optssx["cookiefile"] = c_local
+                            break
 
-            x = YoutubeDL(ydl_optssx)
-            info = x.extract_info(link, False)
-            xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
-            if os.path.exists(xyz):
-                return xyz
-            x.download([link])
-            return xyz
+                    x = YoutubeDL(ydl_optssx)
+                    info = x.extract_info(link, False)
+                    xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
+                    if os.path.exists(xyz):
+                        return xyz
+                    x.download([link])
+                    return xyz
+                    
+                except Exception as e:
+                    if "Sign in to confirm" in str(e) and format_str != formats[-1]:
+                        continue  # Try next format
+                    elif format_str == formats[-1]:
+                        raise  # Re-raise on last attempt
+            
+            return None
 
         def song_video_dl():
             formats = f"{format_id}+140"

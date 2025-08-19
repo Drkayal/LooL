@@ -122,3 +122,23 @@ CACHE_SCHEMA_VERSION = int(getenv("CACHE_SCHEMA_VERSION", 1))
 
 # YouTube cookies configuration - Force use of strings/cookies.txt
 YT_COOKIES_FILE = getenv("YT_COOKIES_FILE", "strings/cookies.txt")
+
+
+# ===== YouTube Fallback Configuration =====
+YOUTUBE_FALLBACK_ENABLED = True
+YOUTUBE_RETRY_DELAY = 15  # seconds between retries
+YOUTUBE_MAX_RETRIES = 2
+YOUTUBE_USE_PROXY = False  # Set to True if you have proxy
+
+# Platform priority when YouTube fails
+PLATFORM_FALLBACK_ORDER = [
+    "Spotify",
+    "SoundCloud", 
+    "Apple",
+    "Resso",
+    "YouTube"  # Last resort
+]
+
+# User notification settings
+NOTIFY_YOUTUBE_ISSUES = True
+SUGGEST_ALTERNATIVES = True
